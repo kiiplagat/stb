@@ -105,6 +105,17 @@ async function send(p, e, m = 'POST') {
   catch (x) { alert(x.message); }
 }
 async function del(p) { if (confirm('Are you sure?')) { try { await api(p, 'DELETE'); render(); } catch (x) { alert(x.message); } } }
+async function resetPw(uid) {
+  const p = prompt('Enter a new password for this person (at least 6 characters)'); if (!p) return;
+  try { await api('users/' + uid + '/reset', 'POST', { password: p }); alert('Password changed. Give the new password to the user.'); }
+  catch (x) { alert(x.message); }
+}
+async function changePw() {
+  const c = prompt('Your current password'); if (!c) return;
+  const n = prompt('New password (at least 6 characters)'); if (!n) return;
+  try { await api('password', 'POST', { current: c, new: n }); alert('Password changed.'); }
+  catch (x) { alert(x.message); }
+}
 async function moveOut(id) {
   if (!confirm('Move this tenant out? Their deposit will be applied to any unpaid rent.')) return;
   try {
@@ -166,7 +177,7 @@ async function render() {
   const list = tabs[U.role]; tab = list.includes(tab) ? tab : list[0];
   el.innerHTML = `<div class="shell"><aside>${brand}
     <nav>${list.map(t => `<button class="${t === tab ? 'on' : ''}" onclick="tab='${t}';render()">${t}</button>`).join('')}</nav>
-    <div class="who">${U.name}<small>${U.role}</small><a onclick="out()">Log out</a></div></aside>
+    <div class="who">${U.name}<small>${U.role}</small><a onclick="changePw()">Change password</a> &nbsp; <a onclick="out()">Log out</a></div></aside>
     <main><h1>${tab}</h1><div id="m">Loading...</div></main></div>`;
   try { $('#m').innerHTML = await views[tab](); } catch (x) { $('#m').innerHTML = `<div class="empty">${x.message}</div>`; }
 }
@@ -193,7 +204,7 @@ const views = {
       <input name="username" placeholder="Tenant login username" required><input name="password" placeholder="Tenant login password" required><button class="p">Save tenant</button></form>`);
     const approvals = sec(`Pending approvals (${pend.length})`, pend.map(x => `<div class="item"><b>${x.name}</b> &middot; ${x.phone}${x.id_number ? ' &middot; ID ' + x.id_number : ''}<br>Requested unit: ${x.unit} (${kes(x.rent)})
       <form class="form" onsubmit="send('pending/${x.id}/approve',event)">${dateBox}<input name="deposit" type="number" placeholder="Deposit paid"><button class="p">Approve</button><button type="button" class="d" onclick="del('pending/${x.id}')">Reject</button></form></div>`).join('') || '<div class="empty">No pending requests.</div>');
-    return form + approvals + sec('Tenants', table(['Name', 'Phone', 'Unit', 'Rent', 'Deposit', 'Move-in', 'Balance', ''], t.map(x => [x.name, x.phone, x.unit, kes(x.rent), kes(x.deposit), dmy(x.move_in), bal(x.balance), L ? `<button class="l" onclick="moveOut(${x.id})">Move out</button><button class="l d" onclick="del('tenants/${x.id}')">Remove</button>` : ''])));
+    return form + approvals + sec('Tenants', table(['Name', 'Phone', 'Unit', 'Rent', 'Deposit', 'Move-in', 'Balance', ''], t.map(x => [x.name, x.phone, x.unit, kes(x.rent), kes(x.deposit), dmy(x.move_in), bal(x.balance), `<button class="l" onclick="resetPw(${x.user_id})">Reset password</button>` + (L ? `<button class="l" onclick="moveOut(${x.id})">Move out</button><button class="l d" onclick="del('tenants/${x.id}')">Remove</button>` : '')])));
   },
   async Payments() {
     const [t, p] = await Promise.all([api('tenants'), api('payments')]), L = U.role === 'landlord';
@@ -210,7 +221,7 @@ const views = {
   async Caretakers() {
     const [c, p] = await Promise.all([api('caretakers'), api('properties')]);
     return add('Add caretaker', `<form class="form" onsubmit="send('caretakers',event)"><input name="name" placeholder="Name" required><input name="username" placeholder="Username" required><input name="password" placeholder="Password" required><select name="property_id" required>${opts(p, x => x.name)}</select><button class="p">Add caretaker</button></form>`)
-      + sec('Caretakers', table(['Name', 'Username', 'Property', ''], c.map(x => [x.name, x.username, x.property, `<button class="l d" onclick="del('caretakers/${x.id}')">Remove</button>`])));
+      + sec('Caretakers', table(['Name', 'Username', 'Property', ''], c.map(x => [x.name, x.username, x.property, `<button class="l" onclick="resetPw(${x.id})">Reset password</button><button class="l d" onclick="del('caretakers/${x.id}')">Remove</button>`])));
   },
   async 'My account'() {
     const m = await api('me');

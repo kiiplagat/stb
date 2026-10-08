@@ -1,4 +1,4 @@
-﻿const express = require('express'), { Pool } = require('pg');
+const express = require('express'), { Pool } = require('pg');
 const bcrypt = require('bcryptjs'), jwt = require('jsonwebtoken'), path = require('path');
 const SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 const pool = new Pool({ connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL, ssl: { rejectUnauthorized: false }, max: 1, connectionTimeoutMillis: 15000, keepAlive: true });
@@ -25,6 +25,7 @@ const init = async () => { for (let i = 0; i < 3; i++) { try { await Q(SCHEMA); 
 
 const app = express();
 app.use(express.json());
+// Serve the web app itself from this function (so / and /manager work on Vercel); no database needed for these
 const PUB = path.join(__dirname, '..', 'public');
 app.use(express.static(PUB));
 app.get(['/', '/manager'], (req, res) => res.sendFile(path.join(PUB, 'index.html')));
@@ -200,10 +201,26 @@ app.get('/api/summary', auth('landlord'), wrap(async (req, res) => {
   });
 }));
 
+// ---- Passwords ----
+const checkNew = v => { if (String(v || '').length < 6) throw new Error('Password must be at least 6 characters'); };
+app.post('/api/password', auth(), wrap(async (req, res) => { // anyone changes their own password
+  need(req.body, 'current', 'new'); checkNew(req.body.new);
+  const u = await one('select * from users where id=$1', [req.user.id]);
+  if (!u || !bcrypt.compareSync(req.body.current, u.hash)) throw new Error('Current password is wrong');
+  await Q('update users set hash=$1 where id=$2', [bcrypt.hashSync(req.body.new, 10), u.id]); res.json({ ok: true });
+}));
+app.post('/api/users/:id/reset', auth('landlord', 'caretaker'), wrap(async (req, res) => { // landlord: caretakers+tenants; caretaker: own tenants
+  checkNew(req.body.password);
+  const u = await one('select * from users where id=$1', [req.params.id]);
+  if (!u || u.role === 'landlord') throw new Error('Not allowed');
+  if (req.user.role === 'caretaker') {
+    const t = await one(TQ + ' where t.user_id=$1', [u.id]);
+    if (u.role !== 'tenant' || !t || t.property_id !== req.user.property_id) throw new Error('Not allowed');
+  }
+  await Q('update users set hash=$1 where id=$2', [bcrypt.hashSync(req.body.password, 10), u.id]); res.json({ ok: true });
+}));
+
 module.exports = app;
 if (require.main === module) { // local testing: npm start
-  app.use(express.static(path.join(__dirname, '..', 'public')));
-  app.get('/manager', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
   app.listen(process.env.PORT || 3000, () => console.log('STB running on http://localhost:3000'));
 }
-
