@@ -81,7 +81,7 @@ body{-webkit-tap-highlight-color:transparent}
 #login{padding-top:calc(env(safe-area-inset-top) + 20px)}
 </style></head><body><div id="app"></div>
 <script>
-let mode = 'login', U = JSON.parse(localStorage.u || 'null'), T = localStorage.t || '', tab;
+let mode = 'login', U = JSON.parse(localStorage.u || 'null'), T = localStorage.t || '', tab = localStorage.tab;
 const $ = s => document.querySelector(s), kes = n => 'KES ' + Number(n || 0).toLocaleString();
 const fd = f => Object.fromEntries(new FormData(f));
 const dmy = s => s ? s.split('-').reverse().join('/') : '';
@@ -200,7 +200,7 @@ async function render() {
     }
     return;
   }
-  const list = tabs[U.role]; tab = list.includes(tab) ? tab : list[0];
+  const list = tabs[U.role]; tab = list.includes(tab) ? tab : list[0]; localStorage.tab = tab;
   el.innerHTML = `<div class="shell"><div class="top"><button class="menu" onclick="toggleMenu()" aria-label="Menu">&#9776;</button><b>STB</b></div><div class="scrim" onclick="toggleMenu()"></div><aside>${brand}
     <nav>${list.map(t => `<button class="${t === tab ? 'on' : ''}" onclick="tab='${t}';render()">${t}</button>`).join('')}</nav>
     <div class="who">${U.name}<small>${U.role}</small><a onclick="changePw()">Change password</a><a onclick="setEmail()">Email address</a><a onclick="out()">Log out</a></div></aside>
