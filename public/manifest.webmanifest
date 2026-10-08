@@ -1,6 +1,6 @@
 {
-  "name": "STB Rental Manager",
-  "short_name": "STB",
+  "name": "RentManager",
+  "short_name": "RentManager",
   "description": "Manage rent, tenants and complaints",
   "start_url": "/",
   "scope": "/",

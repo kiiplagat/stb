@@ -50,7 +50,7 @@ const sendMail = async (to, subject, text) => { // Gmail with an app password
   if (!user || !pass) throw new Error('Email is not set up yet');
   try {
     await require('nodemailer').createTransport({ service: 'gmail', auth: { user, pass } })
-      .sendMail({ from: `"STB Rental Manager" <${user}>`, to, subject, text });
+      .sendMail({ from: `"RentManager" <${user}>`, to, subject, text });
   } catch (e) { console.error('Email failed:', e.message); throw new Error('The email could not be sent. Try again later.'); }
 };
 const mkUser = async (name, username, password, role, property_id = null, email = null) => {
@@ -245,7 +245,7 @@ app.post('/api/forgot', wrap(async (req, res) => { // step 1: email a 6-digit co
   const code = String(require('crypto').randomInt(100000, 1000000));
   await Q('insert into resets(user_id,code_hash,expires,attempts,sent_at) values($1,$2,$3,0,$4) on conflict (user_id) do update set code_hash=$2, expires=$3, attempts=0, sent_at=$4',
     [u.id, bcrypt.hashSync(code, 8), Date.now() + 600000, Date.now()]);
-  await sendMail(u.email, 'Your STB password reset code', `Your password reset code is ${code}.\n\nIt expires in 10 minutes. If you did not ask for it, ignore this email.`);
+  await sendMail(u.email, 'Your RentManager password reset code', `Your password reset code is ${code}.\n\nIt expires in 10 minutes. If you did not ask for it, ignore this email.`);
   res.json(generic);
 }));
 app.post('/api/forgot/confirm', wrap(async (req, res) => { // step 2: code + new password
@@ -262,5 +262,5 @@ app.post('/api/forgot/confirm', wrap(async (req, res) => { // step 2: code + new
 
 module.exports = app;
 if (require.main === module) { // local testing: npm start
-  app.listen(process.env.PORT || 3000, () => console.log('STB running on http://localhost:3000'));
+  app.listen(process.env.PORT || 3000, () => console.log('RentManager running on http://localhost:3000'));
 }
