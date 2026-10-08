@@ -62,16 +62,17 @@ tr:last-child td{border-bottom:0}
 #login h2{font-size:18px;margin:0 0 12px}
 .panel{background:#fff;border:1px solid var(--line);padding:18px;display:grid;gap:10px;margin-bottom:12px}
 #login>button{display:block;width:100%;margin-bottom:8px}
+.top,.scrim{display:none}
 @media(max-width:760px){
+ .top{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:20;background:var(--side);color:#fff;padding:calc(env(safe-area-inset-top) + 6px) 12px 6px}
+ .top .menu{background:none;border:0;color:#fff;font-size:28px;line-height:1;padding:4px 10px;min-height:0}
+ .top b{letter-spacing:2px;font-size:18px}
  .shell{display:block}
- aside{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center}
- .brand{padding:12px 16px}
- aside nav{flex-direction:row;order:3;width:100%;overflow-x:auto}
- aside nav button{border-left:0;border-bottom:3px solid transparent;white-space:nowrap;padding:10px 14px}
- aside nav button.on{border-bottom-color:var(--mark)}
- .who{margin-left:auto;border:0;padding:8px 16px;text-align:right}
+ aside{position:fixed;z-index:40;top:0;left:0;bottom:0;width:270px;height:auto;transform:translateX(-100%);transition:transform .2s;padding-top:env(safe-area-inset-top);overflow-y:auto}
+ .shell.open aside{transform:none}
+ .shell.open .scrim{display:block;position:fixed;inset:0;z-index:30;background:rgba(0,0,0,.5)}
+ aside nav button{padding:15px 20px;font-size:16px}
  main{padding:18px 14px calc(50px + env(safe-area-inset-bottom))}
- aside{padding-top:env(safe-area-inset-top)}
  input,select,textarea{font-size:16px}
  button{min-height:40px}
  .stat{border-bottom:1px solid var(--line)}
@@ -99,6 +100,7 @@ async function api(p, m = 'GET', b) {
   return d;
 }
 const out = () => { localStorage.clear(); U = null; T = ''; mode = 'login'; render(); };
+const toggleMenu = () => $('.shell').classList.toggle('open');
 async function send(p, e, m = 'POST') {
   e.preventDefault();
   try { const b = fd(e.target); if (b.move_in) b.move_in = iso(b.move_in); await api(p, m, b); render(); }
@@ -127,9 +129,9 @@ async function resetConfirm(e) {
   try { const b = fd(e.target); b.username = fuser; await api('forgot/confirm', 'POST', b); alert('Password changed. You can log in now.'); mode = 'login'; render(); }
   catch (x) { alert(x.message); }
 }
-async function setPhone() {
-  const p = prompt('Your phone number (used to text you password reset codes), e.g. 0712345678'); if (!p) return;
-  try { await api('phone', 'POST', { phone: p }); alert('Phone number saved.'); } catch (x) { alert(x.message); }
+async function setEmail() {
+  const e = prompt('Your email address (used to send password reset codes)'); if (!e) return;
+  try { await api('email', 'POST', { email: e }); alert('Email address saved.'); } catch (x) { alert(x.message); }
 }
 async function moveOut(id) {
   if (!confirm('Move this tenant out? Their deposit will be applied to any unpaid rent.')) return;
@@ -170,20 +172,20 @@ async function render() {
     if (mode === 'tenant') {
       const u = await api('vacant-units');
       el.innerHTML = `<div id="login">${brand}<h2>Tenant sign up</h2>
-        <form class="panel" onsubmit="signup(event)"><input name="name" placeholder="Full name" required><input name="phone" placeholder="Phone" required><input name="id_number" placeholder="ID number">
+        <form class="panel" onsubmit="signup(event)"><input name="name" placeholder="Full name" required><input name="phone" placeholder="Phone" required><input name="email" type="email" placeholder="Email (for password reset)" required><input name="id_number" placeholder="ID number">
         <select name="unit_id" required><option value="">Select your unit</option>${opts(u, x => `${x.property} - ${x.number} (${kes(x.rent)})`)}</select>${pw}<button class="p">Request account</button></form>
         <button onclick="mode='login';render()">Back to log in</button></div>`;
     } else if (mode === 'forgot') {
       el.innerHTML = `<div id="login">${brand}<h2>Forgot password</h2>
-        <form class="panel" onsubmit="forgot(event)"><input name="username" placeholder="Your username" required><button class="p">Send code by SMS</button></form>
+        <form class="panel" onsubmit="forgot(event)"><input name="username" placeholder="Your username" required><button class="p">Send code by email</button></form>
         <button onclick="mode='login';render()">Back to log in</button></div>`;
     } else if (mode === 'reset') {
       el.innerHTML = `<div id="login">${brand}<h2>Enter the code</h2>
-        <form class="panel" onsubmit="resetConfirm(event)"><input name="code" placeholder="6-digit code from the SMS" inputmode="numeric" required><input name="password" type="password" placeholder="New password (6+ characters)" required><button class="p">Change password</button></form>
+        <form class="panel" onsubmit="resetConfirm(event)"><input name="code" placeholder="6-digit code from the email" inputmode="numeric" required><input name="password" type="password" placeholder="New password (6+ characters)" required><button class="p">Change password</button></form>
         <button onclick="mode='forgot';render()">Send a new code</button><button onclick="mode='login';render()">Back to log in</button></div>`;
     } else if (mode === 'landlord') {
       el.innerHTML = `<div id="login">${brand}<h2>Create landlord account</h2>
-        <form class="panel" onsubmit="login(event,'register')"><input name="name" placeholder="Your name" required><input name="phone" placeholder="Phone (for password reset)" required>${pw}<button class="p">Create account</button></form>
+        <form class="panel" onsubmit="login(event,'register')"><input name="name" placeholder="Your name" required><input name="email" type="email" placeholder="Email (for password reset)" required>${pw}<button class="p">Create account</button></form>
         <button onclick="mode='login';render()">Back to log in</button></div>`;
     } else {
       const inApp = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
@@ -199,9 +201,9 @@ async function render() {
     return;
   }
   const list = tabs[U.role]; tab = list.includes(tab) ? tab : list[0];
-  el.innerHTML = `<div class="shell"><aside>${brand}
+  el.innerHTML = `<div class="shell"><div class="top"><button class="menu" onclick="toggleMenu()" aria-label="Menu">&#9776;</button><b>STB</b></div><div class="scrim" onclick="toggleMenu()"></div><aside>${brand}
     <nav>${list.map(t => `<button class="${t === tab ? 'on' : ''}" onclick="tab='${t}';render()">${t}</button>`).join('')}</nav>
-    <div class="who">${U.name}<small>${U.role}</small><a onclick="changePw()">Change password</a><a onclick="setPhone()">Phone number</a><a onclick="out()">Log out</a></div></aside>
+    <div class="who">${U.name}<small>${U.role}</small><a onclick="changePw()">Change password</a><a onclick="setEmail()">Email address</a><a onclick="out()">Log out</a></div></aside>
     <main><h1>${tab}</h1><div id="m">Loading...</div></main></div>`;
   try { $('#m').innerHTML = await views[tab](); } catch (x) { $('#m').innerHTML = `<div class="empty">${x.message}</div>`; }
 }
@@ -222,7 +224,7 @@ const views = {
     const [t, pend] = await Promise.all([api('tenants'), api('pending')]), L = U.role === 'landlord';
     const u = (await api('vacant-units')).filter(x => L || x.property_id === U.property_id);
     const dateBox = '<label>Move-in date<input name="move_in" placeholder="dd/mm/yyyy" pattern="\\d{1,2}/\\d{1,2}/\\d{4}" required></label>';
-    const form = add('Add tenant', `<form class="form" onsubmit="send('tenants',event)"><input name="name" placeholder="Full name" required><input name="phone" placeholder="Phone" required><input name="id_number" placeholder="ID number">
+    const form = add('Add tenant', `<form class="form" onsubmit="send('tenants',event)"><input name="name" placeholder="Full name" required><input name="phone" placeholder="Phone" required><input name="email" type="email" placeholder="Email (for password reset)" required><input name="id_number" placeholder="ID number">
       <select name="unit_id" required><option value="">Select unit</option>${opts(u, x => `${x.property} - ${x.number} (${kes(x.rent)})`)}</select>
       ${dateBox}<input name="deposit" type="number" placeholder="Deposit paid">
       <input name="username" placeholder="Tenant login username" required><input name="password" placeholder="Tenant login password" required><button class="p">Save tenant</button></form>`);
@@ -244,7 +246,7 @@ const views = {
   },
   async Caretakers() {
     const [c, p] = await Promise.all([api('caretakers'), api('properties')]);
-    return add('Add caretaker', `<form class="form" onsubmit="send('caretakers',event)"><input name="name" placeholder="Name" required><input name="phone" placeholder="Phone (for password reset)" required><input name="username" placeholder="Username" required><input name="password" placeholder="Password" required><select name="property_id" required>${opts(p, x => x.name)}</select><button class="p">Add caretaker</button></form>`)
+    return add('Add caretaker', `<form class="form" onsubmit="send('caretakers',event)"><input name="name" placeholder="Name" required><input name="email" type="email" placeholder="Email (for password reset)" required><input name="username" placeholder="Username" required><input name="password" placeholder="Password" required><select name="property_id" required>${opts(p, x => x.name)}</select><button class="p">Add caretaker</button></form>`)
       + sec('Caretakers', table(['Name', 'Username', 'Property', ''], c.map(x => [x.name, x.username, x.property, `<button class="l" onclick="resetPw(${x.id})">Reset password</button><button class="l d" onclick="del('caretakers/${x.id}')">Remove</button>`])));
   },
   async 'My account'() {
