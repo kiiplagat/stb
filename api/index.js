@@ -1,4 +1,4 @@
-const express = require('express'), { Pool } = require('pg');
+﻿const express = require('express'), { Pool } = require('pg');
 const bcrypt = require('bcryptjs'), jwt = require('jsonwebtoken'), path = require('path');
 const SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 const pool = new Pool({ connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL, ssl: { rejectUnauthorized: false }, max: 1, connectionTimeoutMillis: 15000, keepAlive: true });
@@ -25,6 +25,9 @@ const init = async () => { for (let i = 0; i < 3; i++) { try { await Q(SCHEMA); 
 
 const app = express();
 app.use(express.json());
+const PUB = path.join(__dirname, '..', 'public');
+app.use(express.static(PUB));
+app.get(['/', '/manager'], (req, res) => res.sendFile(path.join(PUB, 'index.html')));
 app.use((req, res, next) => {
   ready = ready || init().catch(e => { ready = null; throw e; });
   ready.then(() => next(), e => res.status(500).json({ error: 'Database error: ' + e.message }));
@@ -203,3 +206,4 @@ if (require.main === module) { // local testing: npm start
   app.get('/manager', (req, res) => res.sendFile(path.join(__dirname, '..', 'public', 'index.html')));
   app.listen(process.env.PORT || 3000, () => console.log('STB running on http://localhost:3000'));
 }
+
