@@ -24,7 +24,7 @@ aside nav button:hover{color:#fff}
 aside nav button.on{color:#fff;border-left-color:var(--mark);background:#262c33}
 .who{padding:16px 20px;border-top:1px solid #313840;font-size:13px}
 .who small{display:block;color:#8b95a0;text-transform:capitalize}
-.who a{display:inline-block;margin-top:8px;color:var(--mark);cursor:pointer}
+.who a{display:block;margin-top:6px;color:var(--mark);cursor:pointer}
 main{flex:1;min-width:0;padding:26px 32px 60px;max-width:1000px}
 h1{font-size:22px;font-weight:600;margin:0 0 20px;text-transform:capitalize}
 .sec{margin-bottom:28px}
@@ -116,6 +116,21 @@ async function changePw() {
   try { await api('password', 'POST', { current: c, new: n }); alert('Password changed.'); }
   catch (x) { alert(x.message); }
 }
+let fuser = '';
+async function forgot(e) {
+  e.preventDefault();
+  try { const b = fd(e.target); const r = await api('forgot', 'POST', b); fuser = b.username; alert(r.message); mode = 'reset'; render(); }
+  catch (x) { alert(x.message); }
+}
+async function resetConfirm(e) {
+  e.preventDefault();
+  try { const b = fd(e.target); b.username = fuser; await api('forgot/confirm', 'POST', b); alert('Password changed. You can log in now.'); mode = 'login'; render(); }
+  catch (x) { alert(x.message); }
+}
+async function setPhone() {
+  const p = prompt('Your phone number (used to text you password reset codes), e.g. 0712345678'); if (!p) return;
+  try { await api('phone', 'POST', { phone: p }); alert('Phone number saved.'); } catch (x) { alert(x.message); }
+}
 async function moveOut(id) {
   if (!confirm('Move this tenant out? Their deposit will be applied to any unpaid rent.')) return;
   try {
@@ -158,9 +173,17 @@ async function render() {
         <form class="panel" onsubmit="signup(event)"><input name="name" placeholder="Full name" required><input name="phone" placeholder="Phone" required><input name="id_number" placeholder="ID number">
         <select name="unit_id" required><option value="">Select your unit</option>${opts(u, x => `${x.property} - ${x.number} (${kes(x.rent)})`)}</select>${pw}<button class="p">Request account</button></form>
         <button onclick="mode='login';render()">Back to log in</button></div>`;
+    } else if (mode === 'forgot') {
+      el.innerHTML = `<div id="login">${brand}<h2>Forgot password</h2>
+        <form class="panel" onsubmit="forgot(event)"><input name="username" placeholder="Your username" required><button class="p">Send code by SMS</button></form>
+        <button onclick="mode='login';render()">Back to log in</button></div>`;
+    } else if (mode === 'reset') {
+      el.innerHTML = `<div id="login">${brand}<h2>Enter the code</h2>
+        <form class="panel" onsubmit="resetConfirm(event)"><input name="code" placeholder="6-digit code from the SMS" inputmode="numeric" required><input name="password" type="password" placeholder="New password (6+ characters)" required><button class="p">Change password</button></form>
+        <button onclick="mode='forgot';render()">Send a new code</button><button onclick="mode='login';render()">Back to log in</button></div>`;
     } else if (mode === 'landlord') {
       el.innerHTML = `<div id="login">${brand}<h2>Create landlord account</h2>
-        <form class="panel" onsubmit="login(event,'register')"><input name="name" placeholder="Your name" required>${pw}<button class="p">Create account</button></form>
+        <form class="panel" onsubmit="login(event,'register')"><input name="name" placeholder="Your name" required><input name="phone" placeholder="Phone (for password reset)" required>${pw}<button class="p">Create account</button></form>
         <button onclick="mode='login';render()">Back to log in</button></div>`;
     } else {
       const inApp = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
@@ -169,6 +192,7 @@ async function render() {
       el.innerHTML = `<div id="login">${brand}<h2>${staff ? 'Manager login' : inApp ? 'Log in' : 'Tenant login'}</h2>
         <form class="panel" onsubmit="login(event)">${pw}<button class="p">Log in</button></form>
         ${staff ? '' : `<button onclick="mode='tenant';render()">New tenant? Sign up</button>`}
+        <button onclick="mode='forgot';render()">Forgot password?</button>
         ${deferred ? `<button onclick="deferred.prompt()">Install this app</button>` : ''}
         ${needed ? `<button onclick="mode='landlord';render()">First time? Create landlord account</button>` : ''}</div>`;
     }
@@ -177,7 +201,7 @@ async function render() {
   const list = tabs[U.role]; tab = list.includes(tab) ? tab : list[0];
   el.innerHTML = `<div class="shell"><aside>${brand}
     <nav>${list.map(t => `<button class="${t === tab ? 'on' : ''}" onclick="tab='${t}';render()">${t}</button>`).join('')}</nav>
-    <div class="who">${U.name}<small>${U.role}</small><a onclick="changePw()">Change password</a> &nbsp; <a onclick="out()">Log out</a></div></aside>
+    <div class="who">${U.name}<small>${U.role}</small><a onclick="changePw()">Change password</a><a onclick="setPhone()">Phone number</a><a onclick="out()">Log out</a></div></aside>
     <main><h1>${tab}</h1><div id="m">Loading...</div></main></div>`;
   try { $('#m').innerHTML = await views[tab](); } catch (x) { $('#m').innerHTML = `<div class="empty">${x.message}</div>`; }
 }
@@ -220,7 +244,7 @@ const views = {
   },
   async Caretakers() {
     const [c, p] = await Promise.all([api('caretakers'), api('properties')]);
-    return add('Add caretaker', `<form class="form" onsubmit="send('caretakers',event)"><input name="name" placeholder="Name" required><input name="username" placeholder="Username" required><input name="password" placeholder="Password" required><select name="property_id" required>${opts(p, x => x.name)}</select><button class="p">Add caretaker</button></form>`)
+    return add('Add caretaker', `<form class="form" onsubmit="send('caretakers',event)"><input name="name" placeholder="Name" required><input name="phone" placeholder="Phone (for password reset)" required><input name="username" placeholder="Username" required><input name="password" placeholder="Password" required><select name="property_id" required>${opts(p, x => x.name)}</select><button class="p">Add caretaker</button></form>`)
       + sec('Caretakers', table(['Name', 'Username', 'Property', ''], c.map(x => [x.name, x.username, x.property, `<button class="l" onclick="resetPw(${x.id})">Reset password</button><button class="l d" onclick="del('caretakers/${x.id}')">Remove</button>`])));
   },
   async 'My account'() {

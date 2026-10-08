@@ -19,6 +19,8 @@ create table if not exists units(id serial primary key, property_id int, number 
 create table if not exists tenants(id serial primary key, user_id int, name text, phone text, id_number text, unit_id int, move_in text, deposit double precision default 0, status text default 'active');
 create table if not exists payments(id serial primary key, tenant_id int, amount double precision, method text, note text, date text default ${TODAY}, recorded_by int);
 create table if not exists complaints(id serial primary key, tenant_id int, title text, description text, status text default 'open', comment text, created_at text default ${STAMP});
+alter table users add column if not exists phone text;
+create table if not exists resets(user_id int primary key, code_hash text, expires double precision, attempts int default 0, sent_at double precision);
 `;
 let ready = null; // retried on the next request if the database was asleep or unreachable
 const init = async () => { for (let i = 0; i < 3; i++) { try { await Q(SCHEMA); return; } catch (e) { if (i === 2) throw e; await sleep(1500); } } };
@@ -41,18 +43,36 @@ const auth = (...roles) => (req, res, next) => {
   next();
 };
 const need = (o, ...k) => k.forEach(x => { if (!o[x]) throw new Error(x + ' is required'); });
-const mkUser = async (name, username, password, role, property_id = null) => {
+const normPhone = v => { // 0712345678 or 254712345678 -> +254712345678
+  let p = String(v || '').replace(/[\s()-]/g, '');
+  if (/^0[17]\d{8}$/.test(p)) p = '+254' + p.slice(1); else if (/^254\d{9}$/.test(p)) p = '+' + p;
+  return /^\+\d{10,15}$/.test(p) ? p : null;
+};
+const sendSms = async (to, message) => { // Africa's Talking
+  const { AT_USERNAME: username, AT_API_KEY: key, AT_SENDER_ID: from } = process.env;
+  if (!username || !key) throw new Error('SMS is not set up yet');
+  const host = username === 'sandbox' ? 'api.sandbox.africastalking.com' : 'api.africastalking.com';
+  const r = await fetch(`https://${host}/version1/messaging`, {
+    method: 'POST',
+    headers: { apiKey: key, Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ username, to, message, ...(from ? { from } : {}) })
+  });
+  const d = await r.json().catch(() => ({}));
+  const rec = d.SMSMessageData && d.SMSMessageData.Recipients && d.SMSMessageData.Recipients[0];
+  if (!r.ok || !rec || !/success|sent|queued/i.test(rec.status)) throw new Error('The SMS could not be sent. Try again later.');
+};
+const mkUser = async (name, username, password, role, property_id = null, phone = null) => {
   need({ name, username, password }, 'name', 'username', 'password');
   if (await one('select 1 from users where username=$1', [username])) throw new Error('Username already taken');
-  return (await one('insert into users(name,username,hash,role,property_id) values($1,$2,$3,$4,$5) returning id',
-    [name, username, bcrypt.hashSync(password, 10), role, property_id])).id;
+  return (await one('insert into users(name,username,hash,role,property_id,phone) values($1,$2,$3,$4,$5,$6) returning id',
+    [name, username, bcrypt.hashSync(password, 10), role, property_id, normPhone(phone)])).id;
 };
 
 // ---- Auth ----
 app.get('/api/setup', wrap(async (req, res) => res.json({ needed: !(await one("select 1 from users where role='landlord'")) })));
 app.post('/api/register', wrap(async (req, res) => {
   if (await one("select 1 from users where role='landlord'")) throw new Error('Landlord account already exists');
-  await mkUser(req.body.name, req.body.username, req.body.password, 'landlord'); res.json({ ok: true });
+  await mkUser(req.body.name, req.body.username, req.body.password, 'landlord', null, req.body.phone); res.json({ ok: true });
 }));
 app.post('/api/login', wrap(async (req, res) => {
   const u = await one('select * from users where username=$1', [req.body.username]);
@@ -87,7 +107,7 @@ app.get('/api/vacant-units', wrap(async (req, res) => res.json(await Q(
 app.post('/api/signup', wrap(async (req, res) => {
   const b = req.body; need(b, 'name', 'phone', 'unit_id', 'username', 'password');
   if (await one('select 1 from tenants where unit_id=$1', [b.unit_id])) throw new Error('That unit is no longer available');
-  const uid = await mkUser(b.name, b.username, b.password, 'tenant');
+  const uid = await mkUser(b.name, b.username, b.password, 'tenant', null, b.phone);
   await Q("insert into tenants(user_id,name,phone,id_number,unit_id,status) values($1,$2,$3,$4,$5,'pending')", [uid, b.name, b.phone, b.id_number || '', b.unit_id]);
   res.json({ ok: true });
 }));
@@ -131,7 +151,7 @@ app.post('/api/tenants', auth('landlord', 'caretaker'), wrap(async (req, res) =>
   const unit = await one('select * from units where id=$1', [b.unit_id]);
   if (!unit || (req.user.role === 'caretaker' && unit.property_id !== req.user.property_id)) throw new Error('Unit not in your property');
   if (await one('select 1 from tenants where unit_id=$1', [b.unit_id])) throw new Error('That unit is taken or has a pending request');
-  const uid = await mkUser(b.name, b.username, b.password, 'tenant');
+  const uid = await mkUser(b.name, b.username, b.password, 'tenant', null, b.phone);
   await Q("insert into tenants(user_id,name,phone,id_number,unit_id,move_in,deposit,status) values($1,$2,$3,$4,$5,$6,$7,'active')",
     [uid, b.name, b.phone, b.id_number || '', b.unit_id, b.move_in, +b.deposit || 0]);
   res.json({ ok: true });
@@ -152,7 +172,7 @@ app.delete('/api/tenants/:id', auth('landlord'), wrap(async (req, res) => {
 app.get('/api/caretakers', auth('landlord'), wrap(async (req, res) => res.json(await Q(
   "select u.id,u.name,u.username,p.name property from users u left join properties p on p.id=u.property_id where u.role='caretaker' order by u.id"))));
 app.post('/api/caretakers', auth('landlord'), wrap(async (req, res) => {
-  need(req.body, 'property_id'); await mkUser(req.body.name, req.body.username, req.body.password, 'caretaker', +req.body.property_id); res.json({ ok: true });
+  need(req.body, 'property_id'); await mkUser(req.body.name, req.body.username, req.body.password, 'caretaker', +req.body.property_id, req.body.phone); res.json({ ok: true });
 }));
 app.delete('/api/caretakers/:id', auth('landlord'), wrap(async (req, res) => {
   await Q("delete from users where id=$1 and role='caretaker'", [req.params.id]); res.json({ ok: true });
@@ -218,6 +238,35 @@ app.post('/api/users/:id/reset', auth('landlord', 'caretaker'), wrap(async (req,
     if (u.role !== 'tenant' || !t || t.property_id !== req.user.property_id) throw new Error('Not allowed');
   }
   await Q('update users set hash=$1 where id=$2', [bcrypt.hashSync(req.body.password, 10), u.id]); res.json({ ok: true });
+}));
+
+app.post('/api/phone', auth(), wrap(async (req, res) => { // phone used for password-reset codes
+  const ph = normPhone(req.body.phone); if (!ph) throw new Error('Enter a valid phone number, e.g. 0712345678');
+  await Q('update users set phone=$1 where id=$2', [ph, req.user.id]); res.json({ ok: true });
+}));
+app.post('/api/forgot', wrap(async (req, res) => { // step 1: text a 6-digit code
+  const generic = { ok: true, message: 'If that account has a phone number, a code has been sent by SMS.' };
+  const u = await one('select u.id, coalesce(u.phone, t.phone) ph from users u left join tenants t on t.user_id=u.id where u.username=$1', [req.body.username]);
+  const phone = u && normPhone(u.ph);
+  if (!phone) return res.json(generic);
+  const old = await one('select sent_at from resets where user_id=$1', [u.id]);
+  if (old && Date.now() - old.sent_at < 60000) return res.json(generic); // at most one SMS a minute per account
+  const code = String(require('crypto').randomInt(100000, 1000000));
+  await Q('insert into resets(user_id,code_hash,expires,attempts,sent_at) values($1,$2,$3,0,$4) on conflict (user_id) do update set code_hash=$2, expires=$3, attempts=0, sent_at=$4',
+    [u.id, bcrypt.hashSync(code, 8), Date.now() + 600000, Date.now()]);
+  await sendSms(phone, `STB password reset code: ${code}. It expires in 10 minutes. If you did not ask for it, ignore this message.`);
+  res.json(generic);
+}));
+app.post('/api/forgot/confirm', wrap(async (req, res) => { // step 2: code + new password
+  need(req.body, 'username', 'code', 'password'); checkNew(req.body.password);
+  const u = await one('select id from users where username=$1', [req.body.username]);
+  const r = u && await one('select * from resets where user_id=$1', [u.id]);
+  if (!r || r.expires < Date.now() || r.attempts >= 5) throw new Error('That code is invalid or has expired. Ask for a new one.');
+  if (!bcrypt.compareSync(String(req.body.code).trim(), r.code_hash)) {
+    await Q('update resets set attempts=attempts+1 where user_id=$1', [u.id]); throw new Error('Wrong code');
+  }
+  await Q('update users set hash=$1 where id=$2', [bcrypt.hashSync(req.body.password, 10), u.id]);
+  await Q('delete from resets where user_id=$1', [u.id]); res.json({ ok: true });
 }));
 
 module.exports = app;
