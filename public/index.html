@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1d2228">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="STB">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<title>STB - Rental Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--side:#1d2228;--bg:#f4f4f2;--line:#dcdcd6;--ink:#1b1f24;--mute:#66707a;--mark:#d9a441;--red:#b42318;--green:#1a7f4b}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 'IBM Plex Sans',system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+.shell{display:flex;min-height:100vh}
+aside{width:220px;background:var(--side);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;flex-shrink:0}
+.brand{padding:22px 20px 18px;font-weight:600;font-size:20px;letter-spacing:2px}
+.brand small{display:block;font-size:11px;font-weight:400;letter-spacing:.5px;color:#8b95a0;margin-top:2px}
+aside nav{flex:1;display:flex;flex-direction:column}
+aside nav button{background:none;border:0;border-left:3px solid transparent;border-radius:0;color:#aab3bc;text-align:left;padding:10px 20px;font-size:14px}
+aside nav button:hover{color:#fff}
+aside nav button.on{color:#fff;border-left-color:var(--mark);background:#262c33}
+.who{padding:16px 20px;border-top:1px solid #313840;font-size:13px}
+.who small{display:block;color:#8b95a0;text-transform:capitalize}
+.who a{display:inline-block;margin-top:8px;color:var(--mark);cursor:pointer}
+main{flex:1;min-width:0;padding:26px 32px 60px;max-width:1000px}
+h1{font-size:22px;font-weight:600;margin:0 0 20px;text-transform:capitalize}
+.sec{margin-bottom:28px}
+.sec h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--mute);margin:0 0 8px;font-weight:600}
+button{font:inherit;cursor:pointer;border:1px solid #bfc3bd;background:#fff;color:var(--ink);border-radius:3px;padding:7px 14px}
+button.p{background:var(--side);color:#fff;border-color:var(--side)}
+button.l{border:0;background:none;padding:0 8px 0 0;color:#2a4d8f;text-decoration:underline}
+button.l.d,button.d{color:var(--red)}
+.add{border:1px solid var(--line);background:#fff;margin-bottom:12px}
+.add summary{padding:10px 14px;cursor:pointer;font-weight:500}
+.add[open] summary{border-bottom:1px solid var(--line)}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;padding:14px}
+.form button,.form textarea{grid-column:1/-1}
+.form button{justify-self:start}
+.form label{font-size:12px;color:var(--mute)}
+input,select,textarea{width:100%;padding:8px 10px;border:1px solid #bfc3bd;border-radius:3px;font:inherit;background:#fff}
+label input{margin-top:3px}
+.t{overflow-x:auto;background:#fff;border:1px solid var(--line)}
+table{width:100%;border-collapse:collapse}
+th{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--mute);text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);font-weight:600}
+td{padding:9px 12px;border-bottom:1px solid #ecece8;white-space:nowrap;font-variant-numeric:tabular-nums}
+tr:last-child td{border-bottom:0}
+.owe{color:var(--red);font-weight:600}.ok{color:var(--green);font-weight:600}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));background:#fff;border:1px solid var(--line)}
+.stat{padding:16px 18px;border-right:1px solid var(--line)}
+.stat small{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--mute)}
+.stat b{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums}
+.item{background:#fff;border:1px solid var(--line);border-left:3px solid var(--mark);padding:12px 16px;margin-bottom:10px}
+.item.in-progress{border-left-color:#2a4d8f}.item.resolved{border-left-color:var(--green)}
+.item .form{padding:10px 0 0}
+.st{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--mute);margin-left:8px}
+.empty{color:var(--mute);padding:6px 0}
+#login{max-width:380px;margin:9vh auto;padding:0 20px}
+#login .brand{padding:0 0 22px;color:var(--ink)}
+#login h2{font-size:18px;margin:0 0 12px}
+.panel{background:#fff;border:1px solid var(--line);padding:18px;display:grid;gap:10px;margin-bottom:12px}
+#login>button{display:block;width:100%;margin-bottom:8px}
+@media(max-width:760px){
+ .shell{display:block}
+ aside{width:auto;height:auto;position:static;flex-direction:row;flex-wrap:wrap;align-items:center}
+ .brand{padding:12px 16px}
+ aside nav{flex-direction:row;order:3;width:100%;overflow-x:auto}
+ aside nav button{border-left:0;border-bottom:3px solid transparent;white-space:nowrap;padding:10px 14px}
+ aside nav button.on{border-bottom-color:var(--mark)}
+ .who{margin-left:auto;border:0;padding:8px 16px;text-align:right}
+ main{padding:18px 14px calc(50px + env(safe-area-inset-bottom))}
+ aside{padding-top:env(safe-area-inset-top)}
+ input,select,textarea{font-size:16px}
+ button{min-height:40px}
+ .stat{border-bottom:1px solid var(--line)}
+}
+body{-webkit-tap-highlight-color:transparent}
+#login{padding-top:calc(env(safe-area-inset-top) + 20px)}
+</style></head><body><div id="app"></div>
+<script>
+let mode = 'login', U = JSON.parse(localStorage.u || 'null'), T = localStorage.t || '', tab;
+const $ = s => document.querySelector(s), kes = n => 'KES ' + Number(n || 0).toLocaleString();
+const fd = f => Object.fromEntries(new FormData(f));
+const dmy = s => s ? s.split('-').reverse().join('/') : '';
+const iso = v => {
+  const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v.trim());
+  const d = m && new Date(+m[3], +m[2] - 1, +m[1]);
+  if (!d || d.getDate() !== +m[1] || d.getMonth() !== +m[2] - 1) throw new Error('Enter the date as dd/mm/yyyy');
+  return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+};
+const tabs = { landlord: ['Overview', 'Properties', 'Tenants', 'Payments', 'Complaints', 'Caretakers'], caretaker: ['Tenants', 'Payments', 'Complaints'], tenant: ['My account', 'Complaints'] };
+
+async function api(p, m = 'GET', b) {
+  const r = await fetch('/api/' + p, { method: m, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + T }, body: b && JSON.stringify(b) });
+  const d = await r.json();
+  if (!r.ok) { if (r.status === 401 && U) out(); throw new Error(d.error); }
+  return d;
+}
+const out = () => { localStorage.clear(); U = null; T = ''; mode = 'login'; render(); };
+async function send(p, e, m = 'POST') {
+  e.preventDefault();
+  try { const b = fd(e.target); if (b.move_in) b.move_in = iso(b.move_in); await api(p, m, b); render(); }
+  catch (x) { alert(x.message); }
+}
+async function del(p) { if (confirm('Are you sure?')) { try { await api(p, 'DELETE'); render(); } catch (x) { alert(x.message); } } }
+async function moveOut(id) {
+  if (!confirm('Move this tenant out? Their deposit will be applied to any unpaid rent.')) return;
+  try {
+    const r = await api('tenants/' + id + '/moveout', 'POST', {});
+    alert(`Deposit: ${kes(r.deposit)}\nApplied to unpaid rent: ${kes(r.applied)}\nRefund to tenant: ${kes(r.refund)}\nStill owed by tenant: ${kes(r.stillOwed)}`);
+    render();
+  } catch (x) { alert(x.message); }
+}
+async function login(e, path = 'login') {
+  e.preventDefault();
+  try {
+    const body = fd(e.target);
+    if (path === 'register') { await api('register', 'POST', body); }
+    const d = await api('login', 'POST', body);
+    T = d.token; U = d.user; localStorage.t = T; localStorage.u = JSON.stringify(U); tab = null; render();
+  } catch (x) { alert(x.message); }
+}
+async function signup(e) {
+  e.preventDefault();
+  try {
+    await api('signup', 'POST', fd(e.target));
+    alert('Account created. You can log in once the landlord or caretaker approves it.');
+    mode = 'login'; render();
+  } catch (x) { alert(x.message); }
+}
+const opts = (rows, label) => rows.map(r => `<option value="${r.id}">${label(r)}</option>`).join('');
+const table = (head, rows) => `<div class="t"><table><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr>${rows.map(r => `<tr>${r.map(c => `<td>${c ?? ''}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${head.length}" class="empty">Nothing here yet.</td></tr>`}</table></div>`;
+const bal = n => `<span class="${n > 0 ? 'owe' : 'ok'}">${n > 0 ? 'Owes ' + kes(n) : n < 0 ? 'Credit ' + kes(-n) : 'Paid up'}</span>`;
+const sec = (h, body) => `<section class="sec"><h2>${h}</h2>${body}</section>`;
+const add = (h, form) => `<details class="add"><summary>${h}</summary>${form}</details>`;
+const pw = '<input name="username" placeholder="Username" required><input name="password" type="password" placeholder="Password" required>';
+const brand = '<div class="brand">STB<small>Rental manager</small></div>';
+
+async function render() {
+  const el = $('#app');
+  if (!U) {
+    if (mode === 'tenant') {
+      const u = await api('vacant-units');
+      el.innerHTML = `<div id="login">${brand}<h2>Tenant sign up</h2>
+        <form class="panel" onsubmit="signup(event)"><input name="name" placeholder="Full name" required><input name="phone" placeholder="Phone" required><input name="id_number" placeholder="ID number">
+        <select name="unit_id" required><option value="">Select your unit</option>${opts(u, x => `${x.property} - ${x.number} (${kes(x.rent)})`)}</select>${pw}<button class="p">Request account</button></form>
+        <button onclick="mode='login';render()">Back to log in</button></div>`;
+    } else if (mode === 'landlord') {
+      el.innerHTML = `<div id="login">${brand}<h2>Create landlord account</h2>
+        <form class="panel" onsubmit="login(event,'register')"><input name="name" placeholder="Your name" required>${pw}<button class="p">Create account</button></form>
+        <button onclick="mode='login';render()">Back to log in</button></div>`;
+    } else {
+      const inApp = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+      const staff = location.pathname === '/manager';
+      const needed = (staff || inApp) && (await api('setup')).needed;
+      el.innerHTML = `<div id="login">${brand}<h2>${staff ? 'Manager login' : inApp ? 'Log in' : 'Tenant login'}</h2>
+        <form class="panel" onsubmit="login(event)">${pw}<button class="p">Log in</button></form>
+        ${staff ? '' : `<button onclick="mode='tenant';render()">New tenant? Sign up</button>`}
+        ${deferred ? `<button onclick="deferred.prompt()">Install this app</button>` : ''}
+        ${needed ? `<button onclick="mode='landlord';render()">First time? Create landlord account</button>` : ''}</div>`;
+    }
+    return;
+  }
+  const list = tabs[U.role]; tab = list.includes(tab) ? tab : list[0];
+  el.innerHTML = `<div class="shell"><aside>${brand}
+    <nav>${list.map(t => `<button class="${t === tab ? 'on' : ''}" onclick="tab='${t}';render()">${t}</button>`).join('')}</nav>
+    <div class="who">${U.name}<small>${U.role}</small><a onclick="out()">Log out</a></div></aside>
+    <main><h1>${tab}</h1><div id="m">Loading...</div></main></div>`;
+  try { $('#m').innerHTML = await views[tab](); } catch (x) { $('#m').innerHTML = `<div class="empty">${x.message}</div>`; }
+}
+
+const views = {
+  async Overview() {
+    const s = await api('summary');
+    return `<div class="stats">${[['Units', s.units], ['Tenants', s.tenants], ['Pending approvals', s.pending], ['Collected this month', kes(s.collected)], ['Total arrears', kes(s.arrears)], ['Open complaints', s.openComplaints]]
+      .map(([l, v]) => `<div class="stat"><small>${l}</small><b>${v}</b></div>`).join('')}</div>`;
+  },
+  async Properties() {
+    const [p, u] = await Promise.all([api('properties'), api('units')]);
+    return add('Add property', `<form class="form" onsubmit="send('properties',event)"><input name="name" placeholder="Property name" required><input name="location" placeholder="Location"><button class="p">Add property</button></form>`)
+      + add('Add unit', `<form class="form" onsubmit="send('units',event)"><select name="property_id" required>${opts(p, x => x.name)}</select><input name="number" placeholder="Unit / house number" required><input name="rent" type="number" placeholder="Monthly rent" required><button class="p">Add unit</button></form>`)
+      + sec('Units', table(['Property', 'Unit', 'Rent', 'Tenant'], u.map(x => [x.property, x.number, kes(x.rent), x.tenant || 'Vacant'])));
+  },
+  async Tenants() {
+    const [t, pend] = await Promise.all([api('tenants'), api('pending')]), L = U.role === 'landlord';
+    const u = (await api('vacant-units')).filter(x => L || x.property_id === U.property_id);
+    const dateBox = '<label>Move-in date<input name="move_in" placeholder="dd/mm/yyyy" pattern="\\d{1,2}/\\d{1,2}/\\d{4}" required></label>';
+    const form = add('Add tenant', `<form class="form" onsubmit="send('tenants',event)"><input name="name" placeholder="Full name" required><input name="phone" placeholder="Phone" required><input name="id_number" placeholder="ID number">
+      <select name="unit_id" required><option value="">Select unit</option>${opts(u, x => `${x.property} - ${x.number} (${kes(x.rent)})`)}</select>
+      ${dateBox}<input name="deposit" type="number" placeholder="Deposit paid">
+      <input name="username" placeholder="Tenant login username" required><input name="password" placeholder="Tenant login password" required><button class="p">Save tenant</button></form>`);
+    const approvals = sec(`Pending approvals (${pend.length})`, pend.map(x => `<div class="item"><b>${x.name}</b> &middot; ${x.phone}${x.id_number ? ' &middot; ID ' + x.id_number : ''}<br>Requested unit: ${x.unit} (${kes(x.rent)})
+      <form class="form" onsubmit="send('pending/${x.id}/approve',event)">${dateBox}<input name="deposit" type="number" placeholder="Deposit paid"><button class="p">Approve</button><button type="button" class="d" onclick="del('pending/${x.id}')">Reject</button></form></div>`).join('') || '<div class="empty">No pending requests.</div>');
+    return form + approvals + sec('Tenants', table(['Name', 'Phone', 'Unit', 'Rent', 'Deposit', 'Move-in', 'Balance', ''], t.map(x => [x.name, x.phone, x.unit, kes(x.rent), kes(x.deposit), dmy(x.move_in), bal(x.balance), L ? `<button class="l" onclick="moveOut(${x.id})">Move out</button><button class="l d" onclick="del('tenants/${x.id}')">Remove</button>` : ''])));
+  },
+  async Payments() {
+    const [t, p] = await Promise.all([api('tenants'), api('payments')]), L = U.role === 'landlord';
+    return add('Record payment', `<form class="form" onsubmit="send('payments',event)"><select name="tenant_id" required>${opts(t, x => `${x.name} - ${x.unit}`)}</select><input name="amount" type="number" placeholder="Amount" required><select name="method"><option>cash</option><option>mpesa</option><option>bank</option></select><input name="note" placeholder="Note or M-Pesa code"><button class="p">Save payment</button></form>`)
+      + sec('Payment history', table(['Date', 'Tenant', 'Unit', 'Amount', 'Method', 'Note', ''], p.map(x => [dmy(x.date), x.tenant, x.unit, kes(x.amount), x.method, x.note, L ? `<button class="l d" onclick="del('payments/${x.id}')">Delete</button>` : ''])));
+  },
+  async Complaints() {
+    const c = await api('complaints'), T_ = U.role === 'tenant';
+    const form = T_ ? add('Report an issue', `<form class="form" onsubmit="send('complaints',event)"><input name="title" placeholder="What is the problem?" required><textarea name="description" rows="3" placeholder="Details"></textarea><button class="p">Send to landlord</button></form>`) : '';
+    const items = c.map(x => `<div class="item ${x.status.replace(' ', '-')}"><b>${x.title}</b><span class="st">${x.status}</span><br>${T_ ? '' : `${x.tenant} &middot; ${x.unit}<br>`}${x.description || ''}<br><small>${dmy(x.created_at.slice(0, 10))} ${x.created_at.slice(11, 16)}</small>
+      ${T_ ? (x.comment ? `<p><b>Reply:</b> ${x.comment}</p>` : '') : `<form class="form" onsubmit="send('complaints/${x.id}',event,'PATCH')"><select name="status">${['open', 'in progress', 'resolved'].map(s => `<option ${s === x.status ? 'selected' : ''}>${s}</option>`).join('')}</select><input name="comment" placeholder="Comment" value="${x.comment || ''}"><button>Update</button></form>`}</div>`).join('');
+    return form + (items || '<div class="empty">No complaints yet.</div>');
+  },
+  async Caretakers() {
+    const [c, p] = await Promise.all([api('caretakers'), api('properties')]);
+    return add('Add caretaker', `<form class="form" onsubmit="send('caretakers',event)"><input name="name" placeholder="Name" required><input name="username" placeholder="Username" required><input name="password" placeholder="Password" required><select name="property_id" required>${opts(p, x => x.name)}</select><button class="p">Add caretaker</button></form>`)
+      + sec('Caretakers', table(['Name', 'Username', 'Property', ''], c.map(x => [x.name, x.username, x.property, `<button class="l d" onclick="del('caretakers/${x.id}')">Remove</button>`])));
+  },
+  async 'My account'() {
+    const m = await api('me');
+    return `<div class="stats"><div class="stat"><small>Unit</small><b>${m.unit}</b></div><div class="stat"><small>Monthly rent</small><b>${kes(m.rent)}</b></div><div class="stat"><small>Balance</small><b>${bal(m.balance)}</b></div></div><br>`
+      + sec('My payments', table(['Date', 'Amount', 'Method', 'Note'], m.payments.map(x => [dmy(x.date), kes(x.amount), x.method, x.note])));
+  }
+};
+let deferred;
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; if (!U && mode === 'login') render(); });
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
+render();
+</script></body></html>
