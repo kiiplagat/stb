@@ -15,13 +15,14 @@
 *{box-sizing:border-box}
 body{margin:0;font:14px/1.5 'IBM Plex Sans',system-ui,sans-serif;background:var(--bg);color:var(--ink)}
 .shell{display:flex;min-height:100vh}
-aside{width:220px;background:var(--side);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;flex-shrink:0}
+aside{width:220px;background:var(--side);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0}
 .brand{padding:22px 20px 18px;font-weight:600;font-size:20px;letter-spacing:.3px}
 .brand small{display:block;font-size:11px;font-weight:400;letter-spacing:.5px;color:#8b95a0;margin-top:2px}
 aside nav{flex:1;display:flex;flex-direction:column}
 aside nav button{background:none;border:0;border-left:3px solid transparent;border-radius:0;color:#aab3bc;text-align:left;padding:10px 20px;font-size:14px}
 aside nav button:hover{color:#fff}
 aside nav button.on{color:#fff;border-left-color:var(--mark);background:#262c33}
+aside .help{display:block;margin:12px 16px;padding:10px 14px;background:#25d366;color:#0b2a17;text-align:center;border-radius:3px;font-weight:600;text-decoration:none}
 .who{padding:16px 20px;border-top:1px solid #313840;font-size:13px}
 .who small{display:block;color:#8b95a0;text-transform:capitalize}
 .who a{display:block;margin-top:6px;color:var(--mark);cursor:pointer}
@@ -62,6 +63,7 @@ tr:last-child td{border-bottom:0}
 #login h2{font-size:18px;margin:0 0 12px}
 .panel{background:#fff;border:1px solid var(--line);padding:18px;display:grid;gap:10px;margin-bottom:12px}
 #login>button{display:block;width:100%;margin-bottom:8px}
+#login .helpbtn{display:block;margin-top:14px;padding:10px;text-align:center;border:1px solid #25d366;border-radius:3px;background:#fff;color:#128c4a;font-weight:500;text-decoration:none}
 .top,.scrim{display:none}
 @media(max-width:760px){
  .top{display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:20;background:var(--side);color:#fff;padding:calc(env(safe-area-inset-top) + 6px) 12px 6px}
@@ -92,6 +94,18 @@ const iso = v => {
   return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
 };
 const tabs = { landlord: ['Overview', 'Properties', 'Tenants', 'Payments', 'Complaints', 'Caretakers'], caretaker: ['Tenants', 'Payments', 'Complaints'], tenant: ['My account', 'Complaints'] };
+
+// ---- Help (WhatsApp) and install ----
+const HELP_WA = '254747914882'; // 0747914882
+const helpUrl = () => 'https://wa.me/' + HELP_WA + '?text=' + encodeURIComponent('Hello, I need help with RentManager.' + (U ? ` My name is ${U.name} (${U.role}).` : ''));
+let deferred, installed = false;
+const isInstalled = () => installed || matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+async function installApp() {
+  if (deferred) { deferred.prompt(); try { await deferred.userChoice; } catch {} deferred = null; return; }
+  alert(/iphone|ipad|ipod/i.test(navigator.userAgent)
+    ? 'To install: tap the Share button in Safari, then choose "Add to Home Screen".'
+    : 'To install: open your browser menu (the three dots) and choose "Install app" or "Add to Home screen".');
+}
 
 async function api(p, m = 'GET', b) {
   const r = await fetch('/api/' + p, { method: m, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + T }, body: b && JSON.stringify(b) });
@@ -165,6 +179,7 @@ const sec = (h, body) => `<section class="sec"><h2>${h}</h2>${body}</section>`;
 const add = (h, form) => `<details class="add"><summary>${h}</summary>${form}</details>`;
 const pw = '<input name="username" placeholder="Username" required><input name="password" type="password" placeholder="Password" required>';
 const brand = '<div class="brand">RentManager<small>Property management</small></div>';
+const emailBox = '<input name="email" type="email" placeholder="Email (for password reset)" required>';
 
 async function render() {
   const el = $('#app');
@@ -172,7 +187,7 @@ async function render() {
     if (mode === 'tenant') {
       const u = await api('vacant-units');
       el.innerHTML = `<div id="login">${brand}<h2>Tenant sign up</h2>
-        <form class="panel" onsubmit="signup(event)"><input name="name" placeholder="Full name" required><input name="phone" placeholder="Phone" required><input name="email" type="email" placeholder="Email (for password reset)" required><input name="id_number" placeholder="ID number">
+        <form class="panel" onsubmit="signup(event)"><input name="name" placeholder="Full name" required><input name="phone" placeholder="Phone" required>${emailBox}<input name="id_number" placeholder="ID number">
         <select name="unit_id" required><option value="">Select your unit</option>${opts(u, x => `${x.property} - ${x.number} (${kes(x.rent)})`)}</select>${pw}<button class="p">Request account</button></form>
         <button onclick="mode='login';render()">Back to log in</button></div>`;
     } else if (mode === 'forgot') {
@@ -185,25 +200,26 @@ async function render() {
         <button onclick="mode='forgot';render()">Send a new code</button><button onclick="mode='login';render()">Back to log in</button></div>`;
     } else if (mode === 'landlord') {
       el.innerHTML = `<div id="login">${brand}<h2>Create landlord account</h2>
-        <form class="panel" onsubmit="login(event,'register')"><input name="name" placeholder="Your name" required><input name="email" type="email" placeholder="Email (for password reset)" required>${pw}<button class="p">Create account</button></form>
+        <form class="panel" onsubmit="login(event,'register')"><input name="name" placeholder="Your name" required>${emailBox}${pw}<button class="p">Create account</button></form>
         <button onclick="mode='login';render()">Back to log in</button></div>`;
     } else {
-      const inApp = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+      const inApp = isInstalled();
       const staff = location.pathname === '/manager';
       const needed = (staff || inApp) && (await api('setup')).needed;
       el.innerHTML = `<div id="login">${brand}<h2>${staff ? 'Manager login' : inApp ? 'Log in' : 'Tenant login'}</h2>
         <form class="panel" onsubmit="login(event)">${pw}<button class="p">Log in</button></form>
         ${staff ? '' : `<button onclick="mode='tenant';render()">New tenant? Sign up</button>`}
         <button onclick="mode='forgot';render()">Forgot password?</button>
-        ${deferred ? `<button onclick="deferred.prompt()">Install this app</button>` : ''}
         ${needed ? `<button onclick="mode='landlord';render()">First time? Create landlord account</button>` : ''}</div>`;
     }
+    $('#login').insertAdjacentHTML('beforeend', `<a class="helpbtn" href="${helpUrl()}" target="_blank" rel="noopener">Need help? Chat on WhatsApp</a>`);
     return;
   }
   const list = tabs[U.role]; tab = list.includes(tab) ? tab : list[0]; localStorage.tab = tab;
   el.innerHTML = `<div class="shell"><div class="top"><button class="menu" onclick="toggleMenu()" aria-label="Menu">&#9776;</button><b>RentManager</b></div><div class="scrim" onclick="toggleMenu()"></div><aside>${brand}
     <nav>${list.map(t => `<button class="${t === tab ? 'on' : ''}" onclick="tab='${t}';render()">${t}</button>`).join('')}</nav>
-    <div class="who">${U.name}<small>${U.role}</small><a onclick="changePw()">Change password</a><a onclick="setEmail()">Email address</a><a onclick="out()">Log out</a></div></aside>
+    <a class="help" href="${helpUrl()}" target="_blank" rel="noopener">Need help? WhatsApp us</a>
+    <div class="who">${U.name}<small>${U.role}</small><a onclick="changePw()">Change password</a><a onclick="setEmail()">Email address</a>${isInstalled() ? '' : '<a onclick="installApp()">Install app</a>'}<a onclick="out()">Log out</a></div></aside>
     <main><h1>${tab}</h1><div id="m">Loading...</div></main></div>`;
   try { $('#m').innerHTML = await views[tab](); } catch (x) { $('#m').innerHTML = `<div class="empty">${x.message}</div>`; }
 }
@@ -224,7 +240,7 @@ const views = {
     const [t, pend] = await Promise.all([api('tenants'), api('pending')]), L = U.role === 'landlord';
     const u = (await api('vacant-units')).filter(x => L || x.property_id === U.property_id);
     const dateBox = '<label>Move-in date<input name="move_in" placeholder="dd/mm/yyyy" pattern="\\d{1,2}/\\d{1,2}/\\d{4}" required></label>';
-    const form = add('Add tenant', `<form class="form" onsubmit="send('tenants',event)"><input name="name" placeholder="Full name" required><input name="phone" placeholder="Phone" required><input name="email" type="email" placeholder="Email (for password reset)" required><input name="id_number" placeholder="ID number">
+    const form = add('Add tenant', `<form class="form" onsubmit="send('tenants',event)"><input name="name" placeholder="Full name" required><input name="phone" placeholder="Phone" required>${emailBox}<input name="id_number" placeholder="ID number">
       <select name="unit_id" required><option value="">Select unit</option>${opts(u, x => `${x.property} - ${x.number} (${kes(x.rent)})`)}</select>
       ${dateBox}<input name="deposit" type="number" placeholder="Deposit paid">
       <input name="username" placeholder="Tenant login username" required><input name="password" placeholder="Tenant login password" required><button class="p">Save tenant</button></form>`);
@@ -246,7 +262,7 @@ const views = {
   },
   async Caretakers() {
     const [c, p] = await Promise.all([api('caretakers'), api('properties')]);
-    return add('Add caretaker', `<form class="form" onsubmit="send('caretakers',event)"><input name="name" placeholder="Name" required><input name="email" type="email" placeholder="Email (for password reset)" required><input name="username" placeholder="Username" required><input name="password" placeholder="Password" required><select name="property_id" required>${opts(p, x => x.name)}</select><button class="p">Add caretaker</button></form>`)
+    return add('Add caretaker', `<form class="form" onsubmit="send('caretakers',event)"><input name="name" placeholder="Name" required>${emailBox}<input name="username" placeholder="Username" required><input name="password" placeholder="Password" required><select name="property_id" required>${opts(p, x => x.name)}</select><button class="p">Add caretaker</button></form>`)
       + sec('Caretakers', table(['Name', 'Username', 'Property', ''], c.map(x => [x.name, x.username, x.property, `<button class="l" onclick="resetPw(${x.id})">Reset password</button><button class="l d" onclick="del('caretakers/${x.id}')">Remove</button>`])));
   },
   async 'My account'() {
@@ -255,8 +271,8 @@ const views = {
       + sec('My payments', table(['Date', 'Amount', 'Method', 'Note'], m.payments.map(x => [dmy(x.date), kes(x.amount), x.method, x.note])));
   }
 };
-let deferred;
-addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; if (!U && mode === 'login') render(); });
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; });
+addEventListener('appinstalled', () => { installed = true; deferred = null; if (U) render(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');
 render();
 </script></body></html>
