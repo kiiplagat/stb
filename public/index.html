@@ -22,7 +22,6 @@ aside nav{flex:1;display:flex;flex-direction:column}
 aside nav button{background:none;border:0;border-left:3px solid transparent;border-radius:0;color:#aab3bc;text-align:left;padding:10px 20px;font-size:14px}
 aside nav button:hover{color:#fff}
 aside nav button.on{color:#fff;border-left-color:var(--mark);background:#262c33}
-aside .help{display:block;margin:12px 16px;padding:10px 14px;background:#25d366;color:#0b2a17;text-align:center;border-radius:3px;font-weight:600;text-decoration:none}
 .who{padding:16px 20px;border-top:1px solid #313840;font-size:13px}
 .who small{display:block;color:#8b95a0;text-transform:capitalize}
 .who a{display:block;margin-top:6px;color:var(--mark);cursor:pointer}
@@ -218,7 +217,6 @@ async function render() {
   const list = tabs[U.role]; tab = list.includes(tab) ? tab : list[0]; localStorage.tab = tab;
   el.innerHTML = `<div class="shell"><div class="top"><button class="menu" onclick="toggleMenu()" aria-label="Menu">&#9776;</button><b>RentManager</b></div><div class="scrim" onclick="toggleMenu()"></div><aside>${brand}
     <nav>${list.map(t => `<button class="${t === tab ? 'on' : ''}" onclick="tab='${t}';render()">${t}</button>`).join('')}</nav>
-    <a class="help" href="${helpUrl()}" target="_blank" rel="noopener">Need help? WhatsApp us</a>
     <div class="who">${U.name}<small>${U.role}</small><a onclick="changePw()">Change password</a><a onclick="setEmail()">Email address</a>${isInstalled() ? '' : '<a onclick="installApp()">Install app</a>'}<a onclick="out()">Log out</a></div></aside>
     <main><h1>${tab}</h1><div id="m">Loading...</div></main></div>`;
   try { $('#m').innerHTML = await views[tab](); } catch (x) { $('#m').innerHTML = `<div class="empty">${x.message}</div>`; }
