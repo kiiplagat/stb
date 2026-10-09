@@ -57,6 +57,11 @@ tr:last-child td{border-bottom:0}
 .item .form{padding:10px 0 0}
 .st{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--mute);margin-left:8px}
 .empty{color:var(--mute);padding:6px 0}
+.search{margin-bottom:12px}
+.past summary span{color:var(--mute);margin-left:12px}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;padding:14px}
+.facts small{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--mute)}
+.past .t{border-width:1px 0 0}
 #login{max-width:380px;margin:9vh auto;padding:0 20px}
 #login .brand{padding:0 0 22px;color:var(--ink)}
 #login h2{font-size:18px;margin:0 0 12px}
@@ -85,14 +90,15 @@ body{-webkit-tap-highlight-color:transparent}
 let mode = 'login', U = JSON.parse(localStorage.u || 'null'), T = localStorage.t || '', tab = localStorage.tab;
 const $ = s => document.querySelector(s), kes = n => 'KES ' + Number(n || 0).toLocaleString();
 const fd = f => Object.fromEntries(new FormData(f));
-const dmy = s => s ? s.split('-').reverse().join('/') : '';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const dmy = s => s ? esc(s.split('-').reverse().join('/')) : '';
 const iso = v => {
   const m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v.trim());
   const d = m && new Date(+m[3], +m[2] - 1, +m[1]);
   if (!d || d.getDate() !== +m[1] || d.getMonth() !== +m[2] - 1) throw new Error('Enter the date as dd/mm/yyyy');
   return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
 };
-const tabs = { landlord: ['Overview', 'Properties', 'Tenants', 'Payments', 'Complaints', 'Caretakers'], caretaker: ['Tenants', 'Payments', 'Complaints'], tenant: ['My account', 'Complaints'] };
+const tabs = { landlord: ['Overview', 'Properties', 'Tenants', 'Past tenants', 'Payments', 'Complaints', 'Caretakers'], caretaker: ['Tenants', 'Past tenants', 'Payments', 'Complaints'], tenant: ['My account', 'Complaints'] };
 
 // ---- Help (WhatsApp) and install ----
 const HELP_WA = '254747914882'; // 0747914882
@@ -113,13 +119,14 @@ async function api(p, m = 'GET', b) {
   return d;
 }
 const out = () => { localStorage.clear(); U = null; T = ''; mode = 'login'; render(); };
+const filterPast = q => document.querySelectorAll('.past').forEach(d => { d.style.display = d.dataset.q.includes(q.trim().toLowerCase()) ? '' : 'none'; });
 const toggleMenu = () => $('.shell').classList.toggle('open');
 async function send(p, e, m = 'POST') {
   e.preventDefault();
   try { const b = fd(e.target); if (b.move_in) b.move_in = iso(b.move_in); await api(p, m, b); render(); }
   catch (x) { alert(x.message); }
 }
-async function del(p) { if (confirm('Are you sure?')) { try { await api(p, 'DELETE'); render(); } catch (x) { alert(x.message); } } }
+async function del(p, msg) { if (confirm(msg || 'Are you sure?')) { try { await api(p, 'DELETE'); render(); } catch (x) { alert(x.message); } } }
 async function resetPw(uid) {
   const p = prompt('Enter a new password for this person (at least 6 characters)'); if (!p) return;
   try { await api('users/' + uid + '/reset', 'POST', { password: p }); alert('Password changed. Give the new password to the user.'); }
@@ -147,10 +154,10 @@ async function setEmail() {
   try { await api('email', 'POST', { email: e }); alert('Email address saved.'); } catch (x) { alert(x.message); }
 }
 async function moveOut(id) {
-  if (!confirm('Move this tenant out? Their deposit will be applied to any unpaid rent.')) return;
+  if (!confirm('Move this tenant out? Their deposit will be applied to any unpaid rent, and their record will be kept under Past tenants.')) return;
   try {
     const r = await api('tenants/' + id + '/moveout', 'POST', {});
-    alert(`Deposit: ${kes(r.deposit)}\nApplied to unpaid rent: ${kes(r.applied)}\nRefund to tenant: ${kes(r.refund)}\nStill owed by tenant: ${kes(r.stillOwed)}`);
+    alert(`Deposit: ${kes(r.deposit)}\nApplied to unpaid rent: ${kes(r.applied)}\nRefund to tenant: ${kes(r.refund)}\nStill owed by tenant: ${kes(r.stillOwed)}\n\nTheir record is saved under Past tenants.`);
     render();
   } catch (x) { alert(x.message); }
 }
@@ -171,7 +178,7 @@ async function signup(e) {
     mode = 'login'; render();
   } catch (x) { alert(x.message); }
 }
-const opts = (rows, label) => rows.map(r => `<option value="${r.id}">${label(r)}</option>`).join('');
+const opts = (rows, label) => rows.map(r => `<option value="${r.id}">${esc(label(r))}</option>`).join('');
 const table = (head, rows) => `<div class="t"><table><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr>${rows.map(r => `<tr>${r.map(c => `<td>${c ?? ''}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${head.length}" class="empty">Nothing here yet.</td></tr>`}</table></div>`;
 const bal = n => `<span class="${n > 0 ? 'owe' : 'ok'}">${n > 0 ? 'Owes ' + kes(n) : n < 0 ? 'Credit ' + kes(-n) : 'Paid up'}</span>`;
 const sec = (h, body) => `<section class="sec"><h2>${h}</h2>${body}</section>`;
@@ -217,7 +224,7 @@ async function render() {
   const list = tabs[U.role]; tab = list.includes(tab) ? tab : list[0]; localStorage.tab = tab;
   el.innerHTML = `<div class="shell"><div class="top"><button class="menu" onclick="toggleMenu()" aria-label="Menu">&#9776;</button><b>RentManager</b></div><div class="scrim" onclick="toggleMenu()"></div><aside>${brand}
     <nav>${list.map(t => `<button class="${t === tab ? 'on' : ''}" onclick="tab='${t}';render()">${t}</button>`).join('')}</nav>
-    <div class="who">${U.name}<small>${U.role}</small><a onclick="changePw()">Change password</a><a onclick="setEmail()">Email address</a>${isInstalled() ? '' : '<a onclick="installApp()">Install app</a>'}<a onclick="out()">Log out</a></div></aside>
+    <div class="who">${esc(U.name)}<small>${U.role}</small><a onclick="changePw()">Change password</a><a onclick="setEmail()">Email address</a>${isInstalled() ? '' : '<a onclick="installApp()">Install app</a>'}<a onclick="out()">Log out</a></div></aside>
     <main><h1>${tab}</h1><div id="m">Loading...</div></main></div>`;
   try { $('#m').innerHTML = await views[tab](); } catch (x) { $('#m').innerHTML = `<div class="empty">${x.message}</div>`; }
 }
@@ -232,7 +239,7 @@ const views = {
     const [p, u] = await Promise.all([api('properties'), api('units')]);
     return add('Add property', `<form class="form" onsubmit="send('properties',event)"><input name="name" placeholder="Property name" required><input name="location" placeholder="Location"><button class="p">Add property</button></form>`)
       + add('Add unit', `<form class="form" onsubmit="send('units',event)"><select name="property_id" required>${opts(p, x => x.name)}</select><input name="number" placeholder="Unit / house number" required><input name="rent" type="number" placeholder="Monthly rent" required><button class="p">Add unit</button></form>`)
-      + sec('Units', table(['Property', 'Unit', 'Rent', 'Tenant'], u.map(x => [x.property, x.number, kes(x.rent), x.tenant || 'Vacant'])));
+      + sec('Units', table(['Property', 'Unit', 'Rent', 'Tenant'], u.map(x => [esc(x.property), esc(x.number), kes(x.rent), esc(x.tenant) || 'Vacant'])));
   },
   async Tenants() {
     const [t, pend] = await Promise.all([api('tenants'), api('pending')]), L = U.role === 'landlord';
@@ -242,31 +249,40 @@ const views = {
       <select name="unit_id" required><option value="">Select unit</option>${opts(u, x => `${x.property} - ${x.number} (${kes(x.rent)})`)}</select>
       ${dateBox}<input name="deposit" type="number" placeholder="Deposit paid">
       <input name="username" placeholder="Tenant login username" required><input name="password" placeholder="Tenant login password" required><button class="p">Save tenant</button></form>`);
-    const approvals = sec(`Pending approvals (${pend.length})`, pend.map(x => `<div class="item"><b>${x.name}</b> &middot; ${x.phone}${x.id_number ? ' &middot; ID ' + x.id_number : ''}<br>Requested unit: ${x.unit} (${kes(x.rent)})
+    const approvals = sec(`Pending approvals (${pend.length})`, pend.map(x => `<div class="item"><b>${esc(x.name)}</b> &middot; ${esc(x.phone)}${x.id_number ? ' &middot; ID ' + esc(x.id_number) : ''}<br>Requested unit: ${esc(x.unit)} (${kes(x.rent)})
       <form class="form" onsubmit="send('pending/${x.id}/approve',event)">${dateBox}<input name="deposit" type="number" placeholder="Deposit paid"><button class="p">Approve</button><button type="button" class="d" onclick="del('pending/${x.id}')">Reject</button></form></div>`).join('') || '<div class="empty">No pending requests.</div>');
-    return form + approvals + sec('Tenants', table(['Name', 'Phone', 'Unit', 'Rent', 'Deposit', 'Move-in', 'Balance', ''], t.map(x => [x.name, x.phone, x.unit, kes(x.rent), kes(x.deposit), dmy(x.move_in), bal(x.balance), `<button class="l" onclick="resetPw(${x.user_id})">Reset password</button>` + (L ? `<button class="l" onclick="moveOut(${x.id})">Move out</button><button class="l d" onclick="del('tenants/${x.id}')">Remove</button>` : '')])));
+    return form + approvals + sec('Tenants', table(['Name', 'Phone', 'Unit', 'Rent', 'Deposit', 'Move-in', 'Balance', ''], t.map(x => [esc(x.name), esc(x.phone), esc(x.unit), kes(x.rent), kes(x.deposit), dmy(x.move_in), bal(x.balance), `<button class="l" onclick="resetPw(${x.user_id})">Reset password</button>` + (L ? `<button class="l" onclick="moveOut(${x.id})">Move out</button><button class="l d" onclick="del('tenants/${x.id}','Remove this tenant completely? If they have left, use Move out instead so their record is kept.')">Remove</button>` : '')])));
+  },
+  async 'Past tenants'() {
+    const r = await api('past-tenants');
+    if (!r.length) return '<div class="empty">No past tenants yet. When you move a tenant out, their record is kept here.</div>';
+    const f = (l, v) => `<div><small>${l}</small>${v}</div>`, m = v => v == null ? '-' : kes(v);
+    return `<input class="search" placeholder="Search by name, phone, ID or unit" oninput="filterPast(this.value)">` + r.map(x => `<details class="add past" data-q="${esc([x.name, x.phone, x.id_number, x.prev_unit].join(' ').toLowerCase())}">
+      <summary><b>${esc(x.name)}</b><span>${esc(x.prev_unit || 'Unit not recorded')} &middot; ${dmy(x.move_in)} to ${x.moved_out_on ? dmy(x.moved_out_on) : 'date not recorded'}</span></summary>
+      <div class="facts">${f('Phone', esc(x.phone))}${f('ID number', esc(x.id_number || '-'))}${f('Monthly rent', m(x.prev_rent))}${f('Moved in', dmy(x.move_in) || '-')}${f('Moved out', x.moved_out_on ? dmy(x.moved_out_on) : '-')}${f('Deposit paid', kes(x.deposit))}${f('Deposit used for rent', m(x.deposit_applied))}${f('Deposit to refund', m(x.deposit_refund))}${f('Owed at move-out', x.balance_owed == null ? '-' : x.balance_owed > 0 ? `<span class="owe">${kes(x.balance_owed)}</span>` : '<span class="ok">Nothing</span>')}</div>
+      ${table(['Date', 'Amount', 'Method', 'Note'], x.payments.map(p => [dmy(p.date), kes(p.amount), esc(p.method), esc(p.note)]))}</details>`).join('');
   },
   async Payments() {
     const [t, p] = await Promise.all([api('tenants'), api('payments')]), L = U.role === 'landlord';
     return add('Record payment', `<form class="form" onsubmit="send('payments',event)"><select name="tenant_id" required>${opts(t, x => `${x.name} - ${x.unit}`)}</select><input name="amount" type="number" placeholder="Amount" required><select name="method"><option>cash</option><option>mpesa</option><option>bank</option></select><input name="note" placeholder="Note or M-Pesa code"><button class="p">Save payment</button></form>`)
-      + sec('Payment history', table(['Date', 'Tenant', 'Unit', 'Amount', 'Method', 'Note', ''], p.map(x => [dmy(x.date), x.tenant, x.unit, kes(x.amount), x.method, x.note, L ? `<button class="l d" onclick="del('payments/${x.id}')">Delete</button>` : ''])));
+      + sec('Payment history', table(['Date', 'Tenant', 'Unit', 'Amount', 'Method', 'Note', ''], p.map(x => [dmy(x.date), esc(x.tenant), esc(x.unit), kes(x.amount), esc(x.method), esc(x.note), L ? `<button class="l d" onclick="del('payments/${x.id}')">Delete</button>` : ''])));
   },
   async Complaints() {
     const c = await api('complaints'), T_ = U.role === 'tenant';
     const form = T_ ? add('Report an issue', `<form class="form" onsubmit="send('complaints',event)"><input name="title" placeholder="What is the problem?" required><textarea name="description" rows="3" placeholder="Details"></textarea><button class="p">Send to landlord</button></form>`) : '';
-    const items = c.map(x => `<div class="item ${x.status.replace(' ', '-')}"><b>${x.title}</b><span class="st">${x.status}</span><br>${T_ ? '' : `${x.tenant} &middot; ${x.unit}<br>`}${x.description || ''}<br><small>${dmy(x.created_at.slice(0, 10))} ${x.created_at.slice(11, 16)}</small>
-      ${T_ ? (x.comment ? `<p><b>Reply:</b> ${x.comment}</p>` : '') : `<form class="form" onsubmit="send('complaints/${x.id}',event,'PATCH')"><select name="status">${['open', 'in progress', 'resolved'].map(s => `<option ${s === x.status ? 'selected' : ''}>${s}</option>`).join('')}</select><input name="comment" placeholder="Comment" value="${x.comment || ''}"><button>Update</button></form>`}</div>`).join('');
+    const items = c.map(x => `<div class="item ${esc(x.status).replace(' ', '-')}"><b>${esc(x.title)}</b><span class="st">${esc(x.status)}</span><br>${T_ ? '' : `${esc(x.tenant)} &middot; ${esc(x.unit)}<br>`}${esc(x.description)}<br><small>${dmy(x.created_at.slice(0, 10))} ${x.created_at.slice(11, 16)}</small>
+      ${T_ ? (x.comment ? `<p><b>Reply:</b> ${esc(x.comment)}</p>` : '') : `<form class="form" onsubmit="send('complaints/${x.id}',event,'PATCH')"><select name="status">${['open', 'in progress', 'resolved'].map(s => `<option ${s === x.status ? 'selected' : ''}>${s}</option>`).join('')}</select><input name="comment" placeholder="Comment" value="${esc(x.comment)}"><button>Update</button></form>`}</div>`).join('');
     return form + (items || '<div class="empty">No complaints yet.</div>');
   },
   async Caretakers() {
     const [c, p] = await Promise.all([api('caretakers'), api('properties')]);
     return add('Add caretaker', `<form class="form" onsubmit="send('caretakers',event)"><input name="name" placeholder="Name" required>${emailBox}<input name="username" placeholder="Username" required><input name="password" placeholder="Password" required><select name="property_id" required>${opts(p, x => x.name)}</select><button class="p">Add caretaker</button></form>`)
-      + sec('Caretakers', table(['Name', 'Username', 'Property', ''], c.map(x => [x.name, x.username, x.property, `<button class="l" onclick="resetPw(${x.id})">Reset password</button><button class="l d" onclick="del('caretakers/${x.id}')">Remove</button>`])));
+      + sec('Caretakers', table(['Name', 'Username', 'Property', ''], c.map(x => [esc(x.name), esc(x.username), esc(x.property), `<button class="l" onclick="resetPw(${x.id})">Reset password</button><button class="l d" onclick="del('caretakers/${x.id}')">Remove</button>`])));
   },
   async 'My account'() {
     const m = await api('me');
-    return `<div class="stats"><div class="stat"><small>Unit</small><b>${m.unit}</b></div><div class="stat"><small>Monthly rent</small><b>${kes(m.rent)}</b></div><div class="stat"><small>Balance</small><b>${bal(m.balance)}</b></div></div><br>`
-      + sec('My payments', table(['Date', 'Amount', 'Method', 'Note'], m.payments.map(x => [dmy(x.date), kes(x.amount), x.method, x.note])));
+    return `<div class="stats"><div class="stat"><small>Unit</small><b>${esc(m.unit)}</b></div><div class="stat"><small>Monthly rent</small><b>${kes(m.rent)}</b></div><div class="stat"><small>Balance</small><b>${bal(m.balance)}</b></div></div><br>`
+      + sec('My payments', table(['Date', 'Amount', 'Method', 'Note'], m.payments.map(x => [dmy(x.date), kes(x.amount), esc(x.method), esc(x.note)])));
   }
 };
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; });

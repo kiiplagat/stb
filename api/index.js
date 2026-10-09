@@ -1,7 +1,8 @@
 const express = require('express'), { Pool } = require('pg');
 const bcrypt = require('bcryptjs'), jwt = require('jsonwebtoken'), path = require('path');
 const SECRET = process.env.JWT_SECRET || 'change-me-in-production';
-const pool = new Pool({ connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL, ssl: { rejectUnauthorized: false }, max: 1, connectionTimeoutMillis: 15000, keepAlive: true });
+const DB_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+const pool = new Pool({ connectionString: DB_URL, ssl: /@(localhost|127\.0\.0\.1)[:/]/.test(DB_URL || '') ? false : { rejectUnauthorized: false }, max: 1, connectionTimeoutMillis: 15000, keepAlive: true });
 pool.on('error', () => {});
 const RETRY = /TLS|ECONNRESET|socket disconnected|connection timeout|terminated unexpectedly/i;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -22,6 +23,13 @@ create table if not exists complaints(id serial primary key, tenant_id int, titl
 alter table users add column if not exists phone text;
 alter table users add column if not exists email text;
 create table if not exists resets(user_id int primary key, code_hash text, expires double precision, attempts int default 0, sent_at double precision);
+alter table tenants add column if not exists moved_out_on text;
+alter table tenants add column if not exists prev_unit text;
+alter table tenants add column if not exists prev_property_id int;
+alter table tenants add column if not exists prev_rent double precision;
+alter table tenants add column if not exists deposit_applied double precision;
+alter table tenants add column if not exists deposit_refund double precision;
+alter table tenants add column if not exists balance_owed double precision;
 `;
 let ready = null; // retried on the next request if the database was asleep or unreachable
 const init = async () => { for (let i = 0; i < 3; i++) { try { await Q(SCHEMA); return; } catch (e) { if (i === 2) throw e; await sleep(1500); } } };
@@ -151,13 +159,25 @@ app.post('/api/tenants', auth('landlord', 'caretaker'), wrap(async (req, res) =>
 app.post('/api/tenants/:id/moveout', auth('landlord'), wrap(async (req, res) => {
   const t = await one(TQ + " where t.id=$1 and t.status='active'", [req.params.id]); if (!t) throw new Error('Not found');
   const owed = Math.max(0, balance(t)), dep = t.deposit || 0, applied = Math.min(owed, dep);
+  const prop = await one('select name from properties where id=$1', [t.property_id]);
   if (applied > 0) await Q("insert into payments(tenant_id,amount,method,note,recorded_by) values($1,$2,'deposit','Deposit applied at move-out',$3)", [t.id, applied, req.user.id]);
-  await Q("update tenants set status='moved_out', unit_id=null where id=$1", [t.id]);
+  // keep a permanent record of where they lived and how the move-out was settled
+  await Q(`update tenants set status='moved_out', unit_id=null, moved_out_on=${TODAY}, prev_unit=$2, prev_property_id=$3, prev_rent=$4,
+    deposit_applied=$5, deposit_refund=$6, balance_owed=$7 where id=$1`,
+    [t.id, (prop ? prop.name + ' - ' : '') + t.unit, t.property_id, t.rent, applied, dep - applied, owed - applied]);
   res.json({ deposit: dep, applied, refund: dep - applied, stillOwed: owed - applied });
 }));
 app.delete('/api/tenants/:id', auth('landlord'), wrap(async (req, res) => {
   const t = await one('select * from tenants where id=$1', [req.params.id]); if (!t) throw new Error('Not found');
   await Q('delete from tenants where id=$1', [t.id]); await Q('delete from users where id=$1', [t.user_id]); res.json({ ok: true });
+}));
+
+// ---- Past tenants (read-only records; caretakers see their own property's) ----
+app.get('/api/past-tenants', auth('landlord', 'caretaker'), wrap(async (req, res) => {
+  let rows = await Q("select * from tenants where status='moved_out' order by moved_out_on desc nulls last, id desc");
+  if (req.user.role === 'caretaker') rows = rows.filter(r => r.prev_property_id === req.user.property_id);
+  const pays = rows.length ? await Q('select * from payments where tenant_id = any($1::int[]) order by id', [rows.map(r => r.id)]) : [];
+  res.json(rows.map(r => ({ ...r, payments: pays.filter(p => p.tenant_id === r.id) })));
 }));
 
 // ---- Caretakers ----
@@ -231,7 +251,6 @@ app.post('/api/users/:id/reset', auth('landlord', 'caretaker'), wrap(async (req,
   }
   await Q('update users set hash=$1 where id=$2', [bcrypt.hashSync(req.body.password, 10), u.id]); res.json({ ok: true });
 }));
-
 app.post('/api/email', auth(), wrap(async (req, res) => { // email used for password-reset codes
   const em = normEmail(req.body.email); if (!em) throw new Error('Enter a valid email address');
   await Q('update users set email=$1 where id=$2', [em, req.user.id]); res.json({ ok: true });
