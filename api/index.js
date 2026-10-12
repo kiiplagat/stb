@@ -30,6 +30,10 @@ alter table tenants add column if not exists prev_rent double precision;
 alter table tenants add column if not exists deposit_applied double precision;
 alter table tenants add column if not exists deposit_refund double precision;
 alter table tenants add column if not exists balance_owed double precision;
+create table if not exists settings(key text primary key, value text);
+create table if not exists stk_requests(id serial primary key, tenant_id int, phone text, amount int, shortcode text, checkout_id text, merchant_id text, status text default 'initiating', receipt text, message text, created_ms double precision, finished_ms double precision);
+create index if not exists stk_checkout on stk_requests(checkout_id);
+create unique index if not exists stk_receipt on stk_requests(receipt) where receipt is not null;
 `;
 let ready = null; // retried on the next request if the database was asleep or unreachable
 const init = async () => { for (let i = 0; i < 3; i++) { try { await Q(SCHEMA); return; } catch (e) { if (i === 2) throw e; await sleep(1500); } } };
@@ -232,6 +236,143 @@ app.get('/api/summary', auth('landlord'), wrap(async (req, res) => {
     pending: (await one("select count(*)::int n from tenants where status='pending'")).n
   });
 }));
+
+// ---- Payment settings (landlord) and M-Pesa STK push (tenant) ----
+const E = process.env;
+const PAY_METHODS = ['paybill', 'till', 'phone'];
+const sandbox = () => E.MPESA_ENV !== 'production';
+const mpesaBase = () => E.MPESA_BASE_URL || (sandbox() ? 'https://sandbox.safaricom.co.ke' : 'https://api.safaricom.co.ke');
+const appUrl = () => (E.APP_URL || (E.VERCEL_PROJECT_PRODUCTION_URL ? 'https://' + E.VERCEL_PROJECT_PRODUCTION_URL : '')).replace(/\/+$/, '');
+const getSettings = async () => Object.fromEntries((await Q("select key, value from settings where key like 'pay\\_%'")).map(r => [r.key, r.value]));
+const normPayPhone = v => { const m = /^(?:\+?254|0)([17]\d{8})$/.exec(String(v || '').replace(/[\s-]/g, '')); return m ? '254' + m[1] : null; };
+const WHY = { 1: 'Not enough M-Pesa balance.', 1032: 'You cancelled the payment.', 1037: 'The request timed out. You did not enter your PIN in time.', 2001: 'Wrong M-Pesa PIN.' };
+const stkStatus = st => { // can instant payment be offered, and if not, why not (landlord sees the reason)
+  if (!st.pay_method || !st.pay_number) return { ready: false, reason: 'Save your payment method and number first.' };
+  if (st.pay_method === 'phone') return { ready: false, reason: 'A personal phone number cannot receive STK push. Use a Paybill or Till number for instant payments. Tenants will see the number and pay by Send Money.' };
+  const missing = ['MPESA_CONSUMER_KEY', 'MPESA_CONSUMER_SECRET', 'MPESA_PASSKEY', 'MPESA_CALLBACK_SECRET'].filter(k => !E[k]);
+  if (missing.length) return { ready: false, reason: 'Not set up yet. Missing in Vercel: ' + missing.join(', ') + '.' };
+  if (!appUrl()) return { ready: false, reason: 'Not set up yet. Missing in Vercel: APP_URL (your site address, starting with https://).' };
+  if (!sandbox() && st.pay_method === 'paybill' && E.MPESA_SHORTCODE && E.MPESA_SHORTCODE !== st.pay_number)
+    return { ready: false, reason: `The Daraja keys in Vercel belong to shortcode ${E.MPESA_SHORTCODE}, not Paybill ${st.pay_number}. Fix the number here or the keys in Vercel.` };
+  return { ready: true, reason: sandbox() ? 'Test mode: requests go to the Safaricom sandbox, so no real money moves.' : 'Live: tenants are charged for real.' };
+};
+const targets = st => { // who gets paid; always decided on the server, never by the browser
+  if (sandbox()) { const sc = E.MPESA_SHORTCODE || '174379'; return { shortcode: sc, partyB: sc, type: 'CustomerPayBillOnline' }; }
+  if (st.pay_method === 'till') return { shortcode: E.MPESA_SHORTCODE || st.pay_number, partyB: st.pay_number, type: 'CustomerBuyGoodsOnline' };
+  return { shortcode: st.pay_number, partyB: st.pay_number, type: 'CustomerPayBillOnline' };
+};
+let tok = { v: null, exp: 0 };
+const token = async () => {
+  if (tok.v && Date.now() < tok.exp) return tok.v;
+  const r = await fetch(mpesaBase() + '/oauth/v1/generate?grant_type=client_credentials', {
+    headers: { Authorization: 'Basic ' + Buffer.from(E.MPESA_CONSUMER_KEY + ':' + E.MPESA_CONSUMER_SECRET).toString('base64') }, signal: AbortSignal.timeout(15000) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || !d.access_token) { console.error('M-Pesa token failed:', r.status, JSON.stringify(d)); throw new Error('Could not connect to M-Pesa. Check the Daraja consumer key and secret.'); }
+  tok = { v: d.access_token, exp: Date.now() + (Number(d.expires_in) || 3500) * 1000 - 60000 };
+  return tok.v;
+};
+const stamp = () => new Date(Date.now() + 3 * 3600e3).toISOString().replace(/\D/g, '').slice(0, 14); // YYYYMMDDHHmmss, Nairobi time
+const passwordFor = (shortcode, ts) => Buffer.from(shortcode + E.MPESA_PASSKEY + ts).toString('base64');
+const daraja = async (route, body) => {
+  const r = await fetch(mpesaBase() + route, { method: 'POST', headers: { Authorization: 'Bearer ' + await token(), 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(20000) });
+  return { ok: r.ok, d: await r.json().catch(() => ({})) };
+};
+const tx = async fn => {
+  const c = await pool.connect();
+  try { await c.query('begin'); const out = await fn(c); await c.query('commit'); return out; }
+  catch (e) { try { await c.query('rollback'); } catch {} throw e; }
+  finally { c.release(); }
+};
+// Close a request exactly once. The first caller books the payment; repeats (Safaricom resends callbacks) do nothing.
+const settle = async (r, status, receipt, amount, message) => {
+  try {
+    return await tx(async c => {
+      const done = (await c.query("update stk_requests set status=$2, receipt=$3, message=$4, finished_ms=$5 where id=$1 and status in ('pending','initiating') returning *", [r.id, status, receipt, message, Date.now()])).rows[0];
+      if (!done) return null;
+      if (status === 'success') await c.query("insert into payments(tenant_id,amount,method,note) values($1,$2,'mpesa',$3)",
+        [r.tenant_id, amount, receipt ? 'M-Pesa ' + receipt : 'M-Pesa (receipt not received) ' + r.checkout_id]);
+      return done;
+    });
+  } catch (e) { if (e.code === '23505') return null; throw e; } // that receipt was already booked
+};
+// Safety net if Safaricom's callback never arrives: ask Safaricom directly what happened
+const reconcile = async r => {
+  try {
+    const tg = targets(await getSettings()), ts = stamp();
+    const { d } = await daraja('/mpesa/stkpushquery/v1/query', { BusinessShortCode: tg.shortcode, Password: passwordFor(tg.shortcode, ts), Timestamp: ts, CheckoutRequestID: r.checkout_id });
+    if (String(d.ResponseCode) !== '0' || d.ResultCode === undefined) return null; // still processing, or no clear answer
+    return String(d.ResultCode) === '0'
+      ? await settle(r, 'success', null, r.amount, 'Confirmed with Safaricom')
+      : await settle(r, Number(d.ResultCode) === 1032 ? 'cancelled' : 'failed', null, 0, WHY[d.ResultCode] || d.ResultDesc || 'Payment failed');
+  } catch (e) { console.error('Reconcile failed:', e.message); return null; }
+};
+
+app.get('/api/payment-info', auth(), wrap(async (req, res) => { // what tenants and staff may see
+  const st = await getSettings(), s = stkStatus(st);
+  res.json({ method: st.pay_method || null, number: st.pay_number || null, name: st.pay_name || '', note: st.pay_note || '', stk: s.ready, test: s.ready && sandbox() });
+}));
+app.get('/api/payment-settings', auth('landlord'), wrap(async (req, res) => {
+  const st = await getSettings();
+  const attempts = await Q('select s.id, s.amount, s.phone, s.status, s.message, s.receipt, s.created_ms, t.name tenant from stk_requests s left join tenants t on t.id=s.tenant_id order by s.id desc limit 15');
+  res.json({ method: st.pay_method || '', number: st.pay_number || '', name: st.pay_name || '', note: st.pay_note || '', stk: stkStatus(st), mode: sandbox() ? 'test' : 'live', attempts });
+}));
+app.post('/api/payment-settings', auth('landlord'), wrap(async (req, res) => {
+  const method = req.body.method; let number = String(req.body.number || '').replace(/[\s-]/g, '');
+  if (!PAY_METHODS.includes(method)) throw new Error('Choose how tenants pay you');
+  if (method === 'phone') { const p = normPayPhone(number); if (!p) throw new Error('Enter a valid M-Pesa phone number, e.g. 0712345678'); number = '0' + p.slice(3); }
+  else if (!/^\d{5,7}$/.test(number)) throw new Error('Enter the Paybill or Till number (5 to 7 digits)');
+  const vals = { pay_method: method, pay_number: number, pay_name: String(req.body.name || '').trim().slice(0, 80), pay_note: String(req.body.note || '').trim().slice(0, 300) };
+  for (const [k, v] of Object.entries(vals)) await Q('insert into settings(key,value) values($1,$2) on conflict (key) do update set value=excluded.value', [k, v]);
+  res.json({ ok: true });
+}));
+
+app.post('/api/pay/stk', auth('tenant'), wrap(async (req, res) => {
+  const st = await getSettings();
+  if (!stkStatus(st).ready) throw new Error('Instant M-Pesa payment is not available yet. Please use the payment details shown.');
+  const t = await myTenant(req.user); if (!t || t.status !== 'active') throw new Error('Your account is not active');
+  const amount = Math.ceil(Number(req.body.amount));
+  if (!Number.isFinite(amount) || amount < 1 || amount > 500000) throw new Error('Enter an amount between KES 1 and KES 500,000');
+  const phone = normPayPhone(req.body.phone || t.phone); if (!phone) throw new Error('Enter a valid Safaricom number, e.g. 0712345678');
+  if (await one("select 1 from stk_requests where tenant_id=$1 and status in ('initiating','pending') and created_ms > $2", [t.id, Date.now() - 60000]))
+    throw new Error('A payment request is already waiting. Check your phone, or try again in a minute.');
+  const tg = targets(st), ts = stamp();
+  const row = await one('insert into stk_requests(tenant_id,phone,amount,shortcode,created_ms) values($1,$2,$3,$4,$5) returning id', [t.id, phone, amount, tg.partyB, Date.now()]);
+  const fail = async (why) => Q("update stk_requests set status='failed', message=$2, finished_ms=$3 where id=$1", [row.id, why, Date.now()]);
+  let out;
+  try {
+    out = await daraja('/mpesa/stkpush/v1/processrequest', {
+      BusinessShortCode: tg.shortcode, Password: passwordFor(tg.shortcode, ts), Timestamp: ts, TransactionType: tg.type,
+      Amount: amount, PartyA: phone, PartyB: tg.partyB, PhoneNumber: phone,
+      CallBackURL: `${appUrl()}/api/pay/callback/${E.MPESA_CALLBACK_SECRET}`,
+      AccountReference: String(t.unit || 'Rent').slice(0, 12), TransactionDesc: 'Rent' });
+  } catch (e) { await fail(e.message); throw new Error('M-Pesa is not responding. Please try again in a moment.'); }
+  if (!out.ok || String(out.d.ResponseCode) !== '0') {
+    const why = out.d.errorMessage || out.d.ResponseDescription || 'Request refused';
+    console.error('STK push refused:', JSON.stringify(out.d)); await fail(why);
+    throw new Error('M-Pesa could not start the payment. Please try again, or use the payment details shown.');
+  }
+  await Q("update stk_requests set status='pending', checkout_id=$2, merchant_id=$3 where id=$1", [row.id, out.d.CheckoutRequestID, out.d.MerchantRequestID]);
+  res.json({ id: row.id });
+}));
+app.get('/api/pay/status/:id', auth('tenant'), wrap(async (req, res) => {
+  const t = await myTenant(req.user);
+  let r = await one('select * from stk_requests where id=$1 and tenant_id=$2', [req.params.id, t.id]); if (!r) throw new Error('Not found');
+  if (r.status === 'pending' && Date.now() - r.created_ms > 90000) r = (await reconcile(r)) || await one('select * from stk_requests where id=$1', [r.id]);
+  res.json({ status: r.status, receipt: r.receipt, message: r.message });
+}));
+app.post('/api/pay/callback/:secret', async (req, res) => { // called by Safaricom, not by the browser
+  const ok = { ResultCode: 0, ResultDesc: 'Accepted' };
+  try {
+    if (!E.MPESA_CALLBACK_SECRET || req.params.secret !== E.MPESA_CALLBACK_SECRET) return res.status(404).json({ error: 'Not found' });
+    const cb = req.body && req.body.Body && req.body.Body.stkCallback;
+    const r = cb && cb.CheckoutRequestID && await one('select * from stk_requests where checkout_id=$1', [cb.CheckoutRequestID]);
+    if (!r) return res.json(ok); // not one of ours
+    const items = Object.fromEntries((((cb.CallbackMetadata || {}).Item) || []).map(i => [i.Name, i.Value]));
+    if (Number(cb.ResultCode) === 0) await settle(r, 'success', items.MpesaReceiptNumber ? String(items.MpesaReceiptNumber) : null, Number(items.Amount) || r.amount, 'Paid');
+    else await settle(r, Number(cb.ResultCode) === 1032 ? 'cancelled' : 'failed', null, 0, WHY[cb.ResultCode] || cb.ResultDesc || 'Payment failed');
+    res.json(ok);
+  } catch (e) { console.error('Callback error:', e.message); res.status(500).json({ ResultCode: 1, ResultDesc: 'Error' }); }
+});
 
 // ---- Passwords ----
 const checkNew = v => { if (String(v || '').length < 6) throw new Error('Password must be at least 6 characters'); };

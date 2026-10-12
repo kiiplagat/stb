@@ -62,6 +62,9 @@ tr:last-child td{border-bottom:0}
 .facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;padding:14px}
 .facts small{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--mute)}
 .past .t{border-width:1px 0 0}
+.panel label{font-size:12px;color:var(--mute)}
+.panel textarea{font:inherit}
+.pay .msg{min-height:20px;color:var(--mute)}
 #login{max-width:380px;margin:9vh auto;padding:0 20px}
 #login .brand{padding:0 0 22px;color:var(--ink)}
 #login h2{font-size:18px;margin:0 0 12px}
@@ -98,7 +101,7 @@ const iso = v => {
   if (!d || d.getDate() !== +m[1] || d.getMonth() !== +m[2] - 1) throw new Error('Enter the date as dd/mm/yyyy');
   return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
 };
-const tabs = { landlord: ['Overview', 'Properties', 'Tenants', 'Past tenants', 'Payments', 'Complaints', 'Caretakers'], caretaker: ['Tenants', 'Past tenants', 'Payments', 'Complaints'], tenant: ['My account', 'Complaints'] };
+const tabs = { landlord: ['Overview', 'Properties', 'Tenants', 'Past tenants', 'Payments', 'Payment settings', 'Complaints', 'Caretakers'], caretaker: ['Tenants', 'Past tenants', 'Payments', 'Complaints'], tenant: ['My account', 'Complaints'] };
 
 // ---- Help (WhatsApp) and install ----
 const HELP_WA = '254747914882'; // 0747914882
@@ -120,6 +123,30 @@ async function api(p, m = 'GET', b) {
 }
 const out = () => { localStorage.clear(); U = null; T = ''; mode = 'login'; render(); };
 const filterPast = q => document.querySelectorAll('.past').forEach(d => { d.style.display = d.dataset.q.includes(q.trim().toLowerCase()) ? '' : 'none'; });
+async function saveSettings(e) {
+  e.preventDefault();
+  try { await api('payment-settings', 'POST', fd(e.target)); alert('Payment details saved.'); render(); }
+  catch (x) { alert(x.message); }
+}
+async function payNow(e) {
+  e.preventDefault();
+  const b = fd(e.target), btn = $('#paybtn'), msg = $('#paymsg');
+  btn.disabled = true; msg.textContent = 'Sending the request to your phone...';
+  try {
+    const r = await api('pay/stk', 'POST', b);
+    msg.textContent = 'Check your phone and enter your M-Pesa PIN to finish.';
+    for (let i = 0; i < 40; i++) { // wait up to about two minutes
+      await new Promise(go => setTimeout(go, 3000));
+      if (!$('#paymsg')) return; // they left this page
+      const s = await api('pay/status/' + r.id);
+      if (s.status === 'success') { alert('Payment received. Thank you!' + (s.receipt ? '\nM-Pesa receipt: ' + s.receipt : '')); return render(); }
+      if (s.status === 'failed' || s.status === 'cancelled') { msg.textContent = s.message || 'The payment did not go through.'; btn.disabled = false; return; }
+    }
+    msg.textContent = 'No confirmation yet. If M-Pesa charged you, the payment will show here shortly. Otherwise try again.'; btn.disabled = false;
+  } catch (x) { if ($('#paymsg')) { msg.textContent = x.message; btn.disabled = false; } }
+}
+const payHow = (i, unit) => !i.method || !i.number ? '' : i.method === 'paybill' ? `Paybill <b>${esc(i.number)}</b>, account number <b>${esc(unit)}</b>` : i.method === 'till' ? `Till number <b>${esc(i.number)}</b>` : `Send money to <b>${esc(i.number)}</b>`;
+const when = ms => new Date(ms).toLocaleString('en-GB', { timeZone: 'Africa/Nairobi', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const toggleMenu = () => $('.shell').classList.toggle('open');
 async function send(p, e, m = 'POST') {
   e.preventDefault();
@@ -280,9 +307,30 @@ const views = {
       + sec('Caretakers', table(['Name', 'Username', 'Property', ''], c.map(x => [esc(x.name), esc(x.username), esc(x.property), `<button class="l" onclick="resetPw(${x.id})">Reset password</button><button class="l d" onclick="del('caretakers/${x.id}')">Remove</button>`])));
   },
   async 'My account'() {
-    const m = await api('me');
+    const [m, info] = await Promise.all([api('me'), api('payment-info')]);
+    const how = payHow(info, m.unit), due = Math.max(0, Math.ceil(m.balance)) || Math.ceil(m.rent);
+    const form = info.stk ? sec('Pay rent', `<form class="panel pay" onsubmit="payNow(event)">${info.test ? '<small>Test mode: no real money is taken.</small>' : ''}
+        <label>Amount (KES)<input name="amount" type="number" min="1" step="1" value="${due}" required></label>
+        <label>M-Pesa phone number<input name="phone" value="${esc(m.phone)}" required></label>
+        <button class="p" id="paybtn">Pay with M-Pesa</button><div class="msg" id="paymsg"></div></form>`) : '';
+    const other = how ? `<div class="item"><b>${info.stk ? 'Or pay another way' : 'How to pay'}</b><br>${how}${info.name ? '<br>' + esc(info.name) : ''}${info.note ? '<br>' + esc(info.note) : ''}<br><small>After paying this way, tell your landlord or caretaker so it is recorded.</small></div>`
+      : (info.stk ? '' : '<div class="empty">Your landlord has not added payment details yet.</div>');
     return `<div class="stats"><div class="stat"><small>Unit</small><b>${esc(m.unit)}</b></div><div class="stat"><small>Monthly rent</small><b>${kes(m.rent)}</b></div><div class="stat"><small>Balance</small><b>${bal(m.balance)}</b></div></div><br>`
+      + form + other
       + sec('My payments', table(['Date', 'Amount', 'Method', 'Note'], m.payments.map(x => [dmy(x.date), kes(x.amount), esc(x.method), esc(x.note)])));
+  },
+  async 'Payment settings'() {
+    const s = await api('payment-settings'), m = s.method || 'paybill';
+    const opt = (v, l) => `<option value="${v}" ${m === v ? 'selected' : ''}>${l}</option>`;
+    const form = `<form class="panel" onsubmit="saveSettings(event)">
+      <label>How do tenants pay you?<select name="method">${opt('paybill', 'M-Pesa Paybill')}${opt('till', 'M-Pesa Till (Buy Goods)')}${opt('phone', 'M-Pesa phone number (Send Money)')}</select></label>
+      <label>Paybill, Till or phone number<input name="number" value="${esc(s.number)}" required></label>
+      <label>Name tenants will see (optional)<input name="name" value="${esc(s.name)}" maxlength="80"></label>
+      <label>Note for tenants (optional)<textarea name="note" rows="2" maxlength="300">${esc(s.note)}</textarea></label>
+      <button class="p">Save payment details</button></form>`;
+    const status = `<div class="item ${s.stk.ready ? 'resolved' : 'in-progress'}"><b>Instant M-Pesa payment (STK push): ${s.stk.ready ? 'On' : 'Off'}</b><span class="st">${s.mode} mode</span><br>${esc(s.stk.reason)}</div>`;
+    const tries = sec('Recent M-Pesa requests', table(['Time', 'Tenant', 'Amount', 'Phone', 'Result'], s.attempts.map(x => [when(x.created_ms), esc(x.tenant), kes(x.amount), esc(x.phone), esc(x.status + (x.receipt ? ' - ' + x.receipt : '') + (x.status === 'failed' || x.status === 'cancelled' ? ': ' + (x.message || '') : ''))])));
+    return sec('Where tenants pay you', form) + status + tries;
   }
 };
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; });
